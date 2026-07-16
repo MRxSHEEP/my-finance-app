@@ -1,5 +1,11 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Image from "next/image";
+import Link from "next/link";
+import AccountMenu from "@/components/AccountMenu";
+import AuthSessionProvider from "@/components/AuthSessionProvider";
+import Sidebar from "@/components/Sidebar";
+import TickerBar from "@/components/TickerBar";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -27,7 +33,29 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <AuthSessionProvider>
+          <TickerBar />
+          <header className="flex items-center justify-between gap-2 px-6 py-4">
+            <Link href="/" className="flex items-center gap-2">
+              <Image
+                src="/crown(1).webp.webp"
+                alt="Noble"
+                width={32}
+                height={32}
+                priority
+                style={{ width: "auto", height: "32px" }}
+              />
+              <span className="text-xl font-bold text-foreground">Noble</span>
+            </Link>
+            <AccountMenu />
+          </header>
+          <div className="flex flex-1">
+            <Sidebar />
+            <div className="flex flex-1 flex-col">{children}</div>
+          </div>
+        </AuthSessionProvider>
+      </body>
     </html>
   );
 }

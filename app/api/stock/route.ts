@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveTickerSymbol } from "@/lib/resolveTicker";
 
 export async function GET(request: NextRequest) {
-  const ticker = request.nextUrl.searchParams.get("ticker")?.trim().toUpperCase();
+  const query = request.nextUrl.searchParams.get("ticker")?.trim();
 
-  if (!ticker) {
+  if (!query) {
     return NextResponse.json(
       { error: "Missing required query parameter: ticker" },
       { status: 400 }
@@ -17,6 +18,8 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+
+  const ticker = await resolveTickerSymbol(query, apiKey);
 
   const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(
     ticker

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveTickerSymbol } from "@/lib/resolveTicker";
 
 const UNAVAILABLE_MESSAGE = "Historical data unavailable on this plan";
 
@@ -13,7 +14,7 @@ const VALID_INTERVALS = [
 ] as const;
 type Interval = (typeof VALID_INTERVALS)[number];
 
-const VALID_RANGES = ["1D", "1W", "1M", "3M", "1Y"] as const;
+const VALID_RANGES = ["1D", "1W", "1M", "3M", "YTD", "1Y", "5Y", "MAX"] as const;
 type Range = (typeof VALID_RANGES)[number];
 
 const TRADING_DAYS_FOR_RANGE: Record<Range, number> = {
@@ -21,7 +22,13 @@ const TRADING_DAYS_FOR_RANGE: Record<Range, number> = {
   "1W": 5,
   "1M": 22,
   "3M": 65,
+  // Unused — YTD is served as an explicit Jan 1–today date range below
+  // instead, since a fixed trading-day count can't represent it accurately.
+  "YTD": 0,
   "1Y": 252,
+  "5Y": 1260,
+  // Deliberately huge; clamped down to MAX_OUTPUTSIZE in computeOutputSize.
+  "MAX": 20000,
 };
 
 const INTRADAY_MINUTES: Record<Exclude<Interval, "1day">, number> = {
@@ -40,7 +47,7 @@ function computeOutputSize(interval: Interval, range: Range): number {
   const tradingDays = TRADING_DAYS_FOR_RANGE[range];
 
   if (interval === "1day") {
-    return Math.max(2, tradingDays);
+    return Math.max(2, Math.min(MAX_OUTPUTSIZE, tradingDays));
   }
 
   const minutesPerCandle = INTRADAY_MINUTES[interval];
@@ -49,9 +56,9 @@ function computeOutputSize(interval: Interval, range: Range): number {
 }
 
 export async function GET(request: NextRequest) {
-  const ticker = request.nextUrl.searchParams.get("ticker")?.trim().toUpperCase();
+  const query = request.nextUrl.searchParams.get("ticker")?.trim();
 
-  if (!ticker) {
+  if (!query) {
     return NextResponse.json(
       { error: "Missing required query parameter: ticker" },
       { status: 400 }
@@ -61,6 +68,19 @@ export async function GET(request: NextRequest) {
   const intervalParam = request.nextUrl.searchParams.get("interval") ?? "1day";
   const rangeParam = request.nextUrl.searchParams.get("range") ?? "1M";
 
+  // Explicit start/end dates (used by tools like the DCA simulator that
+  // need an arbitrary historical window) take priority over the preset
+  // range enum below, which drives the chart's outputsize calculation.
+  const startParam = request.nextUrl.searchParams.get("start");
+  const endParam = request.nextUrl.searchParams.get("end");
+  const explicitDateRange = Boolean(startParam && endParam);
+
+  // YTD has no fixed trading-day count, so it's served the same way as an
+  // explicit start/end request — Jan 1 of the current year through today —
+  // rather than through the outputsize estimation used by the other ranges.
+  const isYtd = !explicitDateRange && rangeParam === "YTD";
+  const isDateRangeMode = explicitDateRange || isYtd;
+
   if (!VALID_INTERVALS.includes(intervalParam as Interval)) {
     return NextResponse.json(
       { error: `Invalid interval parameter. Must be one of: ${VALID_INTERVALS.join(", ")}` },
@@ -68,7 +88,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (!VALID_RANGES.includes(rangeParam as Range)) {
+  if (!isDateRangeMode && !VALID_RANGES.includes(rangeParam as Range)) {
     return NextResponse.json(
       { error: `Invalid range parameter. Must be one of: ${VALID_RANGES.join(", ")}` },
       { status: 400 }
@@ -78,6 +98,10 @@ export async function GET(request: NextRequest) {
   const interval = intervalParam as Interval;
   const range = rangeParam as Range;
 
+  // Optional pagination cursor: when provided, fetch the next chunk of
+  // history ending at/before this date instead of the most recent data.
+  const before = request.nextUrl.searchParams.get("before");
+
   const apiKey = process.env.TWELVEDATA_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
@@ -86,11 +110,38 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const outputsize = computeOutputSize(interval, range);
+  const ticker = await resolveTickerSymbol(query, process.env.FINNHUB_API_KEY);
 
-  const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(
-    ticker
-  )}&interval=${interval}&outputsize=${outputsize}&apikey=${apiKey}`;
+  let url: string;
+
+  if (isDateRangeMode) {
+    let effectiveStart: string;
+    let effectiveEnd: string;
+
+    if (explicitDateRange) {
+      effectiveStart = startParam as string;
+      effectiveEnd = endParam as string;
+    } else {
+      const now = new Date();
+      effectiveStart = `${now.getUTCFullYear()}-01-01`;
+      effectiveEnd = now.toISOString().slice(0, 10);
+    }
+
+    url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(
+      ticker
+    )}&interval=${interval}&start_date=${encodeURIComponent(
+      effectiveStart
+    )}&end_date=${encodeURIComponent(effectiveEnd)}&apikey=${apiKey}`;
+  } else {
+    const outputsize = computeOutputSize(interval, range);
+    url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(
+      ticker
+    )}&interval=${interval}&outputsize=${outputsize}&apikey=${apiKey}`;
+
+    if (before) {
+      url += `&end_date=${encodeURIComponent(before)}`;
+    }
+  }
 
   let response: Response;
   try {

@@ -10,6 +10,140 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Custom keyframes must be declared inside @theme (as --animate-* tokens)
+     rather than as plain top-level @keyframes — Tailwind v4's build only
+     guarantees a keyframes block survives minification when it's tied to
+     its generated utility this way; a bare @keyframes here gets tree-shaken
+     away as "unused" even though an arbitrary-value animate-[...] utility
+     elsewhere references it by name. */
+  --animate-ticker-scroll: ticker-scroll 50s linear infinite;
+  --animate-ticker-flash-up: ticker-flash-up 800ms ease-out;
+  --animate-ticker-flash-down: ticker-flash-down 800ms ease-out;
+  /* Per-icon duration/delay in the crypto banner are overridden via inline
+     style (animation-duration/animation-delay), which — as longhand
+     properties — win over these shorthand values from the class; only the
+     name/timing-function/iteration-count here are actually shared. */
+  --animate-crypto-float: crypto-float 8s ease-in-out infinite;
+  --animate-crypto-gradient: crypto-gradient 16s ease-in-out infinite;
+  /* Home hero background layers — all deliberately slow/low-opacity so
+     they read as ambient texture, not motion you consciously notice. */
+  --animate-grid-drift: grid-drift 20s linear infinite;
+  /* Reuses the ticker's own translateX(0)->translateX(-50%) loop (the
+     hero's line-chart SVG is duplicated side by side the same way the
+     ticker duplicates its item list) at a far slower, decorative speed. */
+  --animate-chart-drift: ticker-scroll 90s linear infinite;
+  /* Hero corner trend-line squiggles: a one-time "draw in" on load rather
+     than a loop — `forwards` is part of the shorthand here (unlike the
+     tokens above) so the stroke stays fully drawn after the animation
+     ends instead of resetting to its undrawn starting state. */
+  --animate-trend-line-draw: trend-line-draw 2.5s ease-out forwards;
+  /* Scattered hero logos: translateY-only (no rotation baked in, unlike
+     crypto-float above) because each logo also gets its own *static*
+     rotation via an outer wrapper — baking rotation into this keyframe
+     too would fight that per-element angle every frame instead of
+     complementing it. */
+  --animate-logo-float: logo-float 7s ease-in-out infinite;
+  /* Watchlist star toggle — a one-shot bounce (like ticker-flash-up/down
+     above, `forwards` isn't needed here since scale(1) is both the rest
+     state and the end state). Remounted via a changing `key` on toggle,
+     same restart technique used for the ticker's flash pulse. */
+  --animate-star-bounce: star-bounce 400ms ease-out;
+
+  @keyframes star-bounce {
+    0% {
+      transform: scale(1);
+    }
+    35% {
+      transform: scale(1.35);
+    }
+    65% {
+      transform: scale(0.92);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+
+  @keyframes trend-line-draw {
+    from {
+      stroke-dashoffset: 300;
+    }
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+
+  @keyframes logo-float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+
+  @keyframes ticker-scroll {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      /* The track renders the item list twice back-to-back, so scrolling
+         exactly half its width lines the second copy up where the first
+         started — the loop point is invisible. */
+      transform: translateX(-50%);
+    }
+  }
+
+  @keyframes ticker-flash-up {
+    0% {
+      background-color: rgba(34, 197, 94, 0.35);
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
+
+  @keyframes ticker-flash-down {
+    0% {
+      background-color: rgba(239, 68, 68, 0.35);
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
+
+  @keyframes crypto-float {
+    0%,
+    100% {
+      transform: translateY(0) rotate(0deg);
+    }
+    50% {
+      transform: translateY(-14px) rotate(8deg);
+    }
+  }
+
+  @keyframes crypto-gradient {
+    0%,
+    100% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+  }
+
+  @keyframes grid-drift {
+    from {
+      background-position: 0 0;
+    }
+    to {
+      /* Matches the grid pattern's own cell size, so the loop point is
+         indistinguishable from the starting position. */
+      background-position: 40px 40px;
+    }
+  }
 }
 
 @media (prefers-color-scheme: dark) {

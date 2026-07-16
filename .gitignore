@@ -36,6 +36,16 @@ yarn-error.log*
 # vercel
 .vercel
 
+# generated data caches
+/data/company-descriptions.json
+
+# prisma
+/prisma/*.db
+/prisma/*.db-journal
+/lib/generated/prisma
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/lib/generated/prisma
