@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { cardClass } from "@/lib/cardStyles";
+import { SCROLLBAR_THIN_CLASS } from "@/lib/scrollbarStyles";
 
 interface InsiderTransaction {
   name: string;
@@ -54,7 +56,7 @@ export default function InsiderActivityCard({ ticker }: { ticker: string }) {
   }, [ticker]);
 
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-black/10 p-4 dark:border-white/15">
+    <div className={cardClass("neutral", { extra: "flex flex-col gap-3 p-4" })}>
       <h3 className="font-semibold text-foreground">Insider Activity</h3>
 
       {!data && !error && (
@@ -86,35 +88,45 @@ export default function InsiderActivityCard({ ticker }: { ticker: string }) {
           )}
 
           {data.transactions.length > 0 ? (
-            <div className="flex max-h-72 flex-col gap-1 overflow-y-auto text-xs">
-              {data.transactions.map((transaction, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between gap-2 border-b border-black/5 py-1.5 last:border-0 dark:border-white/10"
-                >
-                  <div className="flex flex-col">
-                    <span className="font-medium text-foreground">{transaction.name}</span>
-                    <span className="text-foreground/50">{transaction.transactionDate}</span>
+            <div className="relative">
+              <div
+                className={`flex max-h-72 flex-col gap-1 overflow-y-auto pr-2 text-xs ${SCROLLBAR_THIN_CLASS}`}
+              >
+                {data.transactions.map((transaction, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between gap-2 rounded-md border-b border-black/5 px-2 py-1.5 transition-colors duration-150 ease-out last:border-0 hover:bg-foreground/5 dark:border-white/10"
+                  >
+                    <div className="flex flex-col">
+                      <span className="font-medium text-foreground">{transaction.name}</span>
+                      <span className="text-foreground/50">{transaction.transactionDate}</span>
+                    </div>
+                    <div className="flex flex-col items-end">
+                      <span
+                        className={`font-medium ${
+                          transaction.isBuy
+                            ? "text-green-500"
+                            : transaction.isSell
+                              ? "text-red-500"
+                              : "text-foreground/60"
+                        }`}
+                      >
+                        {transaction.codeLabel}
+                      </span>
+                      <span className="text-foreground/50">
+                        {shareFormatter.format(transaction.shares)} sh
+                        {transaction.value > 0 ? ` · ${currencyFormatter.format(transaction.value)}` : ""}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex flex-col items-end">
-                    <span
-                      className={`font-medium ${
-                        transaction.isBuy
-                          ? "text-green-500"
-                          : transaction.isSell
-                            ? "text-red-500"
-                            : "text-foreground/60"
-                      }`}
-                    >
-                      {transaction.codeLabel}
-                    </span>
-                    <span className="text-foreground/50">
-                      {shareFormatter.format(transaction.shares)} sh
-                      {transaction.value > 0 ? ` · ${currencyFormatter.format(transaction.value)}` : ""}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
+              {/* Only shown once the list is long enough to plausibly need
+                  scrolling — otherwise it'd fade out the last (fully
+                  visible) row for no reason. */}
+              {data.transactions.length > 6 && (
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 rounded-b-md bg-gradient-to-t from-background to-transparent" />
+              )}
             </div>
           ) : (
             <p className="text-sm text-foreground/60">No recent insider transactions found.</p>

@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveTickerSymbol } from "@/lib/resolveTicker";
 import { withCache } from "@/lib/newsCache";
+import {
+  isTwelveDataDailyExhaustionMessage,
+  markTwelveDataDailyExhausted,
+  throttledTwelveDataCall,
+} from "@/lib/twelveDataThrottle";
 
 export const dynamic = "force-dynamic";
 
@@ -39,13 +44,26 @@ export async function GET(request: NextRequest) {
     const unavailable: PriceTargetData = { available: false, high: null, low: null, average: null };
     if (!twelveDataKey) return unavailable;
 
-    const response = await fetch(
-      `https://api.twelvedata.com/price_target?symbol=${encodeURIComponent(ticker)}&apikey=${twelveDataKey}`
-    ).catch(() => null);
-    if (!response?.ok) return unavailable;
+    // Previously called TwelveData directly, bypassing lib/twelveDataThrottle.ts
+    // entirely — the one call site in this app not sharing the account-wide
+    // 8-calls/minute pacing every other TwelveData consumer (sparklines, the
+    // main chart) respects. Harmless in isolation, but this endpoint can be
+    // hit concurrently with those from the same page (the stock detail
+    // page's Valuation tab), and an unthrottled call racing in alongside
+    // throttled ones is exactly the kind of gap that pushes the account
+    // over its per-minute cap even when each individual path looks paced.
+    const body = await throttledTwelveDataCall(async () => {
+      const response = await fetch(
+        `https://api.twelvedata.com/price_target?symbol=${encodeURIComponent(ticker)}&apikey=${twelveDataKey}`
+      );
+      return response.json().catch(() => null);
+    }, `price-target:${ticker}`).catch(() => null);
 
-    const body = await response.json().catch(() => null);
-    if (body?.status === "error" || !body?.price_target) return unavailable;
+    if (body?.status === "error") {
+      if (isTwelveDataDailyExhaustionMessage(body?.message)) markTwelveDataDailyExhausted();
+      return unavailable;
+    }
+    if (!body?.price_target) return unavailable;
 
     const { high, low, average } = body.price_target;
     if (typeof high !== "number" || typeof low !== "number" || typeof average !== "number") {

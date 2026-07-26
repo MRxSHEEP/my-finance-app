@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import ScrollHint from "@/components/ScrollHint";
+import { cardClass } from "@/lib/cardStyles";
 
 interface CompanyRow {
   symbol: string;
@@ -67,7 +69,7 @@ export default function PeerComparisonCard({ ticker }: { ticker: string }) {
   const rows = data?.rows ?? [];
 
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-black/10 p-4 dark:border-white/15">
+    <div className={cardClass("blue", { extra: "flex flex-col gap-3 p-4" })}>
       <h3 className="font-semibold text-foreground">Peer Comparison</h3>
 
       {!data && !error && <div className="h-32 w-full animate-pulse rounded bg-foreground/10" />}
@@ -79,6 +81,8 @@ export default function PeerComparisonCard({ ticker }: { ticker: string }) {
       )}
 
       {data && rows.length > 1 && (
+        <>
+        <ScrollHint />
         <div className="overflow-x-auto">
           <table className="w-full min-w-[480px] text-sm">
             <thead>
@@ -88,7 +92,9 @@ export default function PeerComparisonCard({ ticker }: { ticker: string }) {
                   <th
                     key={row.symbol}
                     className={`p-2 text-right font-semibold ${
-                      row.isCurrent ? "rounded-t-md bg-foreground/10 text-foreground" : "text-foreground/70"
+                      row.isCurrent
+                        ? "rounded-t-md bg-gradient-to-b from-blue-400/20 to-blue-400/5 text-foreground ring-1 ring-blue-400/30"
+                        : "text-foreground/70"
                     }`}
                   >
                     {row.symbol}
@@ -108,8 +114,8 @@ export default function PeerComparisonCard({ ticker }: { ticker: string }) {
                       return (
                         <td
                           key={row.symbol}
-                          className={`p-2 text-right ${row.isCurrent ? "bg-foreground/5" : ""} ${
-                            isBest ? "font-semibold text-green-500" : "text-foreground"
+                          className={`p-2 text-right ${row.isCurrent ? "bg-blue-400/5" : ""} ${
+                            isBest ? "font-semibold text-green-500 drop-shadow-[0_0_6px_rgba(34,197,94,0.35)]" : "text-foreground"
                           }`}
                         >
                           {typeof value === "number" ? metricRow.format(value) : "—"}
@@ -122,6 +128,7 @@ export default function PeerComparisonCard({ ticker }: { ticker: string }) {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

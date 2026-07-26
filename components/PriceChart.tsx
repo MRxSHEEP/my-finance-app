@@ -6,6 +6,7 @@ import {
   ColorType,
   CrosshairMode,
   createChart,
+  HistogramSeries,
   IChartApi,
   ISeriesApi,
   LineSeries,
@@ -16,6 +17,8 @@ import {
   TrackingModeExitMode,
   UTCTimestamp,
 } from "lightweight-charts";
+
+const VOLUME_PRICE_SCALE_ID = "volume";
 
 // Extracted from app/stocks/page.tsx (previously named StockChart) so
 // /crypto can reuse the exact same charting behavior — this component was
@@ -199,22 +202,33 @@ export function PercentChangeBadge({ value }: { value: number }) {
   );
 }
 
+// "neutral" (default) is the original monochrome treatment, unchanged for
+// every existing caller (including every crypto page usage, which doesn't
+// pass `accent`). "blue" is opt-in — the stock section's page-wide
+// interactive accent, so its own range/type/toggle pills read as one
+// consistent color language without recoloring this shared component's
+// default for callers that never asked for it.
 export function PillButton({
   active,
   onClick,
   children,
+  accent = "neutral",
 }: {
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  accent?: "neutral" | "blue";
 }) {
+  const activeClass =
+    accent === "blue" ? "bg-blue-500 text-white" : "bg-foreground text-background";
+
   return (
     <button
       onClick={onClick}
-      className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+      className={`rounded-md px-2.5 py-2 text-xs font-medium transition-all duration-200 ease-out active:scale-95 ${
         active
-          ? "bg-foreground text-background"
-          : "border border-black/10 text-foreground/60 hover:text-foreground dark:border-white/15"
+          ? activeClass
+          : "border border-black/10 text-foreground/60 hover:border-black/25 hover:text-foreground dark:border-white/15 dark:hover:border-white/30"
       }`}
     >
       {children}
@@ -233,6 +247,9 @@ export default function PriceChart({
   locked,
   isExpanded,
   loadingMore,
+  showVolume = false,
+  compareHistory = null,
+  showComparison = false,
   onNearLeftEdge,
   onHoverChange,
 }: {
@@ -244,6 +261,12 @@ export default function PriceChart({
   locked: boolean;
   isExpanded: boolean;
   loadingMore: boolean;
+  showVolume?: boolean;
+  // The comparison ticker's own history for the same range/interval —
+  // fetched by the parent (this component stays a pure presentational
+  // chart, same as it's always been for the primary `history`).
+  compareHistory?: HistoryPoint[] | null;
+  showComparison?: boolean;
   onNearLeftEdge: () => void;
   onHoverChange: (point: HistoryPoint | null) => void;
 }) {
@@ -252,6 +275,8 @@ export default function PriceChart({
   const seriesRef = useRef<
     ISeriesApi<"Line"> | ISeriesApi<"Candlestick"> | null
   >(null);
+  const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const compareSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const previousHistoryRef = useRef<HistoryPoint[] | null>(null);
   const previousGenerationRef = useRef<number | null>(null);
   const onNearLeftEdgeRef = useRef(onNearLeftEdge);
@@ -276,11 +301,15 @@ export default function PriceChart({
   const [visibleRange, setVisibleRangeState] = useState<LogicalRange | null>(
     null
   );
-  // Briefly dims the chart around a range switch so the redraw reads as a
-  // smooth transition instead of an abrupt jump to a differently-scaled
-  // dataset (lightweight-charts has no built-in tween between two series).
+  // Briefly dims the chart around a range/interval/chart-type switch so the
+  // redraw reads as a smooth transition instead of an abrupt jump to a
+  // differently-scaled dataset or series type (lightweight-charts has no
+  // built-in tween between two series).
   const [fading, setFading] = useState(false);
   const previousRangeRef = useRef<Range | null>(null);
+  const previousIntervalRef = useRef<Interval | null>(null);
+  const previousChartTypeRef = useRef<ChartType | null>(null);
+  const previousComparisonRef = useRef<boolean | null>(null);
 
   useEffect(() => {
     intervalRef.current = interval;
@@ -366,6 +395,8 @@ export default function PriceChart({
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      volumeSeriesRef.current = null;
+      compareSeriesRef.current = null;
     };
   }, []);
 
@@ -431,19 +462,42 @@ export default function PriceChart({
         : 0;
     previousHistoryRef.current = history;
 
-    // A genuine range switch (not a prepend within the same range) gets a
-    // brief cross-fade so the redraw reads as smooth rather than an abrupt
-    // jump — lightweight-charts has no built-in tween between two datasets
-    // of different length/scale, so this is done with a CSS opacity dip.
+    // Comparison mode always renders as a line (a normalized-%% comparison
+    // doesn't have a meaningful candlestick form) and plots % change from
+    // the period start instead of raw price, so both tickers share one
+    // sensible axis regardless of their actual dollar prices.
+    const usesComparison = showComparison && !!compareHistory && compareHistory.length > 0;
+    const effectiveChartType: ChartType = usesComparison ? "line" : chartType;
+
+    // A genuine range/interval/chart-type/comparison switch (not a prepend
+    // within the same settings) gets a brief cross-fade so the redraw reads
+    // as smooth rather than an abrupt jump — lightweight-charts has no
+    // built-in tween between two datasets of different length/scale or
+    // between a line and candlestick series, so this is done with a CSS
+    // opacity dip.
     const currentRangeValue = rangeRef.current;
+    const currentIntervalValue = intervalRef.current;
     const rangeChanged =
       previousRangeRef.current !== null && previousRangeRef.current !== currentRangeValue;
+    const intervalChanged =
+      previousIntervalRef.current !== null && previousIntervalRef.current !== currentIntervalValue;
+    const chartTypeChanged =
+      previousChartTypeRef.current !== null && previousChartTypeRef.current !== effectiveChartType;
+    const comparisonChanged =
+      previousComparisonRef.current !== null && previousComparisonRef.current !== usesComparison;
     previousRangeRef.current = currentRangeValue;
-    if (rangeChanged) setFading(true);
+    previousIntervalRef.current = currentIntervalValue;
+    previousChartTypeRef.current = effectiveChartType;
+    previousComparisonRef.current = usesComparison;
+    if (rangeChanged || intervalChanged || chartTypeChanged || comparisonChanged) setFading(true);
 
     if (seriesRef.current) {
       chart.removeSeries(seriesRef.current);
       seriesRef.current = null;
+    }
+    if (compareSeriesRef.current) {
+      chart.removeSeries(compareSeriesRef.current);
+      compareSeriesRef.current = null;
     }
 
     // The line's color reflects the trend over the whole selected period
@@ -454,7 +508,7 @@ export default function PriceChart({
 
     let series: ISeriesApi<"Line"> | ISeriesApi<"Candlestick">;
 
-    if (chartType === "line") {
+    if (effectiveChartType === "line") {
       series = chart.addSeries(LineSeries, {
         color: lineColor,
         lineWidth: 2,
@@ -469,7 +523,7 @@ export default function PriceChart({
       series.setData(
         history.map((point) => ({
           time: toUnixTime(point.date),
-          value: point.close,
+          value: usesComparison ? ((point.close - periodStartClose) / periodStartClose) * 100 : point.close,
         }))
       );
     } else {
@@ -493,17 +547,36 @@ export default function PriceChart({
 
     seriesRef.current = series;
 
-    // Subtle dashed reference line at the period's starting price, so it's
-    // visually obvious whether the current/scrubbed point sits above or
-    // below where the selected period began.
+    // Subtle dashed reference line at the period's starting price (or at
+    // 0% in comparison mode), so it's visually obvious whether the
+    // current/scrubbed point sits above or below where the period began.
     series.createPriceLine({
-      price: periodStartClose,
+      price: usesComparison ? 0 : periodStartClose,
       color: "rgba(148,163,184,0.6)",
       lineWidth: 1,
       lineStyle: LineStyle.Dashed,
       axisLabelVisible: false,
       title: "",
     });
+
+    if (usesComparison && compareHistory) {
+      const compareBase = compareHistory[0].close;
+      const compareSeries = chart.addSeries(LineSeries, {
+        color: "#a78bfa",
+        lineWidth: 2,
+        crosshairMarkerVisible: true,
+        crosshairMarkerRadius: 4,
+        lastValueVisible: true,
+        priceLineVisible: false,
+      });
+      compareSeries.setData(
+        compareHistory.map((point) => ({
+          time: toUnixTime(point.date),
+          value: ((point.close - compareBase) / compareBase) * 100,
+        }))
+      );
+      compareSeriesRef.current = compareSeries;
+    }
 
     if (prependedCount > 0) {
       // Shift the visible range by exactly how many bars were prepended so
@@ -530,7 +603,7 @@ export default function PriceChart({
 
     setHoverPoint(history[history.length - 1]);
 
-    if (rangeChanged) {
+    if (rangeChanged || intervalChanged || chartTypeChanged || comparisonChanged) {
       requestAnimationFrame(() => setFading(false));
     }
     // `interval`/`range` are intentionally read via refs above, not listed
@@ -539,7 +612,47 @@ export default function PriceChart({
     // is safe to depend on directly (unlike interval/range): it's only ever
     // bumped in the same synchronous block as setHistory, so the two always
     // update together in one commit — never in a mismatched intermediate render.
-  }, [chartType, history, historyGeneration]);
+  }, [chartType, history, historyGeneration, showComparison, compareHistory]);
+
+  // Volume is a self-contained secondary series overlaid in the bottom ~20%
+  // of the same pane (its own named price scale, not lightweight-charts'
+  // newer multi-pane API) — kept in its own effect rather than folded into
+  // the main series-building effect above so toggling it on/off never tears
+  // down or refits the primary price/candlestick series.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    if (!showVolume || history.length === 0 || !history.some((point) => point.volume !== undefined)) {
+      if (volumeSeriesRef.current) {
+        chart.removeSeries(volumeSeriesRef.current);
+        volumeSeriesRef.current = null;
+      }
+      return;
+    }
+
+    if (!volumeSeriesRef.current) {
+      volumeSeriesRef.current = chart.addSeries(HistogramSeries, {
+        priceScaleId: VOLUME_PRICE_SCALE_ID,
+        priceFormat: { type: "volume" },
+        lastValueVisible: false,
+        priceLineVisible: false,
+      });
+      chart.priceScale(VOLUME_PRICE_SCALE_ID).applyOptions({
+        scaleMargins: { top: 0.8, bottom: 0 },
+      });
+    }
+
+    volumeSeriesRef.current.setData(
+      history
+        .filter((point) => point.volume !== undefined)
+        .map((point) => ({
+          time: toUnixTime(point.date),
+          value: point.volume as number,
+          color: point.close >= point.open ? "rgba(34,197,94,0.5)" : "rgba(239,68,68,0.5)",
+        }))
+    );
+  }, [showVolume, history]);
 
   // Subscribes exactly once per chart instance rather than depending on
   // `history` — re-subscribing on every history update (every range switch

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveTickerSymbol } from "@/lib/resolveTicker";
-
-const UNAVAILABLE_MESSAGE = "Historical data unavailable on this plan";
+import { fetchHistoryWithFallback } from "@/lib/stockHistoryCache";
 
 const VALID_INTERVALS = [
   "1min",
@@ -112,103 +111,86 @@ export async function GET(request: NextRequest) {
 
   const ticker = await resolveTickerSymbol(query, process.env.FINNHUB_API_KEY);
 
-  let url: string;
+  function buildUrl(forInterval: Interval): string {
+    if (isDateRangeMode) {
+      let effectiveStart: string;
+      let effectiveEnd: string;
 
-  if (isDateRangeMode) {
-    let effectiveStart: string;
-    let effectiveEnd: string;
+      if (explicitDateRange) {
+        effectiveStart = startParam as string;
+        effectiveEnd = endParam as string;
+      } else {
+        const now = new Date();
+        effectiveStart = `${now.getUTCFullYear()}-01-01`;
+        effectiveEnd = now.toISOString().slice(0, 10);
+      }
 
-    if (explicitDateRange) {
-      effectiveStart = startParam as string;
-      effectiveEnd = endParam as string;
-    } else {
-      const now = new Date();
-      effectiveStart = `${now.getUTCFullYear()}-01-01`;
-      effectiveEnd = now.toISOString().slice(0, 10);
+      return `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(
+        ticker
+      )}&interval=${forInterval}&start_date=${encodeURIComponent(
+        effectiveStart
+      )}&end_date=${encodeURIComponent(effectiveEnd)}&apikey=${apiKey}`;
     }
 
-    url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(
+    const outputsize = computeOutputSize(forInterval, range);
+    let url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(
       ticker
-    )}&interval=${interval}&start_date=${encodeURIComponent(
-      effectiveStart
-    )}&end_date=${encodeURIComponent(effectiveEnd)}&apikey=${apiKey}`;
-  } else {
-    const outputsize = computeOutputSize(interval, range);
-    url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(
-      ticker
-    )}&interval=${interval}&outputsize=${outputsize}&apikey=${apiKey}`;
+    )}&interval=${forInterval}&outputsize=${outputsize}&apikey=${apiKey}`;
 
     if (before) {
       url += `&end_date=${encodeURIComponent(before)}`;
     }
+
+    return url;
   }
 
-  let response: Response;
-  try {
-    response = await fetch(url);
-  } catch {
-    return NextResponse.json(
-      { error: "Failed to reach Twelve Data API" },
-      { status: 502 }
-    );
-  }
+  // Pagination ("load more" further back in an already-open chart) skips
+  // the fallback chain below — swapping granularity mid-scroll would break
+  // bar continuity with what's already rendered, and a failure here is
+  // already handled gracefully client-side (it just stops infinite-scroll)
+  // rather than needing a fallback chart of its own.
+  if (before) {
+    try {
+      const result = await fetchHistoryWithFallback({
+        ticker,
+        range: explicitDateRange ? `custom:${startParam}:${endParam}` : range,
+        primaryUrl: buildUrl(interval),
+        primaryInterval: interval,
+        dailyUrl: null,
+      });
 
-  // Twelve Data signals failures (invalid symbol, plan restrictions, bad key)
-  // via a "status": "error" JSON body, often alongside a non-2xx HTTP status.
-  const result = await response.json().catch(() => null);
+      if ("error" in result) {
+        return NextResponse.json({ error: result.error }, { status: 502 });
+      }
 
-  if (result?.status === "error") {
-    if (response.status === 401 || response.status === 403) {
-      return NextResponse.json({ error: UNAVAILABLE_MESSAGE }, { status: 403 });
+      return NextResponse.json({ ticker, history: result.history });
+    } catch {
+      return NextResponse.json({ error: "Chart data temporarily unavailable" }, { status: 502 });
     }
-    return NextResponse.json(
-      { error: result.message ?? UNAVAILABLE_MESSAGE },
-      { status: 502 }
-    );
   }
 
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403) {
-      return NextResponse.json({ error: UNAVAILABLE_MESSAGE }, { status: 403 });
-    }
-    if (response.status === 429) {
-      return NextResponse.json(
-        { error: "Twelve Data API rate limit exceeded" },
-        { status: 502 }
-      );
-    }
-    return NextResponse.json(
-      { error: `Twelve Data API error (${response.status})` },
-      { status: 502 }
-    );
+  const dailyUrl = interval === "1day" ? null : buildUrl("1day");
+
+  const result = await fetchHistoryWithFallback({
+    ticker,
+    range: explicitDateRange ? `custom:${startParam}:${endParam}` : range,
+    primaryUrl: buildUrl(interval),
+    primaryInterval: interval,
+    dailyUrl,
+  });
+
+  if ("error" in result) {
+    // Still a clean, generic message — never the raw provider error —
+    // even in this "truly nothing available" case.
+    return NextResponse.json({ error: result.error }, { status: 502 });
   }
 
-  if (!Array.isArray(result.values) || result.values.length === 0) {
-    return NextResponse.json(
-      { error: `No data found for ticker "${ticker}"` },
-      { status: 404 }
-    );
-  }
-
-  const history = result.values
-    .map(
-      (value: {
-        datetime: string;
-        open: string;
-        high: string;
-        low: string;
-        close: string;
-        volume?: string;
-      }) => ({
-        date: value.datetime,
-        open: Number(value.open),
-        high: Number(value.high),
-        low: Number(value.low),
-        close: Number(value.close),
-        volume: value.volume !== undefined ? Number(value.volume) : undefined,
-      })
-    )
-    .reverse();
-
-  return NextResponse.json({ ticker, history });
+  return NextResponse.json({
+    ticker,
+    history: result.history,
+    interval: result.interval,
+    stale: result.stale,
+    staleFetchedAt: result.staleFetchedAt ? new Date(result.staleFetchedAt).toISOString() : null,
+    fallbackApplied: result.fallbackApplied,
+  });
 }
