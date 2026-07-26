@@ -1,45 +1,38 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { BookOpen } from "lucide-react";
+import { CONCEPT_VISUALS, CONCEPT_COLOR_CLASSES } from "@/lib/conceptVisuals";
 import ToolCard from "@/components/tools/ToolCard";
 import NumberField from "@/components/tools/NumberField";
 import PortfolioChart from "@/components/tools/PortfolioChart";
+import AnimatedNumber from "@/components/tools/AnimatedNumber";
+import HowItWorksAccordion from "@/components/tools/HowItWorksAccordion";
+import LoadExampleButton from "@/components/tools/LoadExampleButton";
+import DisclaimerCallout from "@/components/tools/DisclaimerCallout";
 import { formatCurrency, formatPercent, toNumber } from "@/lib/format";
+import { calculateDca, type HistoryPoint, type DcaFrequency } from "@/lib/calculators/dca";
 
-type HistoryPoint = { date: string; close: number };
-type Frequency = "weekly" | "monthly";
+type Frequency = DcaFrequency;
 
-// Generates each investment date from start to end (inclusive) at the
-// given frequency. Dates are advanced in UTC to avoid DST-related drift.
-function generateInvestmentDates(start: Date, end: Date, frequency: Frequency): Date[] {
-  const dates: Date[] = [];
-  const current = new Date(start);
-
-  while (current.getTime() <= end.getTime()) {
-    dates.push(new Date(current));
-    if (frequency === "weekly") {
-      current.setUTCDate(current.getUTCDate() + 7);
-    } else {
-      current.setUTCMonth(current.getUTCMonth() + 1);
-    }
-  }
-
-  return dates;
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
-// Finds the most recent close on or before the target date (markets
-// aren't open every day, so an investment date may not have its own bar).
-function findCloseOnOrBefore(history: HistoryPoint[], target: Date): number | null {
-  let result: number | null = null;
-  for (const point of history) {
-    if (new Date(point.date).getTime() <= target.getTime()) {
-      result = point.close;
-    } else {
-      break;
-    }
-  }
-  return result;
+function isoYearsAgo(years: number): string {
+  const d = new Date();
+  d.setUTCFullYear(d.getUTCFullYear() - years);
+  return d.toISOString().slice(0, 10);
 }
+
+const EXAMPLE = {
+  ticker: "AAPL",
+  amount: "500",
+  frequency: "monthly" as Frequency,
+  startDate: isoYearsAgo(5),
+  endDate: todayIso(),
+};
 
 export default function DcaSimulatorPage() {
   const [ticker, setTicker] = useState("AAPL");
@@ -57,14 +50,26 @@ export default function DcaSimulatorPage() {
   const [appliedStart, setAppliedStart] = useState("");
   const [appliedEnd, setAppliedEnd] = useState("");
 
-  async function handleSimulate() {
-    const amountNum = toNumber(amount);
+  const amountNum = toNumber(amount);
+  const amountError = amount.trim() && amountNum <= 0 ? "Must be a positive amount." : undefined;
+  const dateOrderError =
+    startDate && endDate && new Date(startDate).getTime() >= new Date(endDate).getTime()
+      ? "Start date must be before end date."
+      : undefined;
 
-    if (!ticker.trim() || !startDate || !endDate || amountNum <= 0) {
+  async function runSimulation(
+    simTicker: string,
+    simAmount: string,
+    simFrequency: Frequency,
+    simStart: string,
+    simEnd: string
+  ) {
+    const amt = toNumber(simAmount);
+    if (!simTicker.trim() || !simStart || !simEnd || amt <= 0) {
       setError("Please fill in ticker, a positive amount, and both dates.");
       return;
     }
-    if (new Date(startDate).getTime() >= new Date(endDate).getTime()) {
+    if (new Date(simStart).getTime() >= new Date(simEnd).getTime()) {
       setError("Start date must be before end date.");
       return;
     }
@@ -75,9 +80,7 @@ export default function DcaSimulatorPage() {
 
     try {
       const res = await fetch(
-        `/api/stock/history?ticker=${encodeURIComponent(
-          ticker.trim()
-        )}&start=${startDate}&end=${endDate}`
+        `/api/stock/history?ticker=${encodeURIComponent(simTicker.trim())}&start=${simStart}&end=${simEnd}`
       );
       const body = await res.json();
 
@@ -92,11 +95,11 @@ export default function DcaSimulatorPage() {
       }
 
       setHistory(body.history);
-      setResolvedTicker(body.ticker ?? ticker.trim().toUpperCase());
-      setAppliedFrequency(frequency);
-      setAppliedAmount(amountNum);
-      setAppliedStart(startDate);
-      setAppliedEnd(endDate);
+      setResolvedTicker(body.ticker ?? simTicker.trim().toUpperCase());
+      setAppliedFrequency(simFrequency);
+      setAppliedAmount(amt);
+      setAppliedStart(simStart);
+      setAppliedEnd(simEnd);
     } catch {
       setError("Failed to fetch historical data");
     } finally {
@@ -104,53 +107,53 @@ export default function DcaSimulatorPage() {
     }
   }
 
-  let totalInvested = 0;
-  let totalShares = 0;
-  let currentValue = 0;
-  const chartPoints: { date: string; value: number }[] = [];
-
-  if (history && history.length > 0) {
-    const investmentDates = generateInvestmentDates(
-      new Date(appliedStart),
-      new Date(appliedEnd),
-      appliedFrequency
-    ).filter((d) => d.getTime() >= new Date(history[0].date).getTime());
-
-    const periods: { date: Date; shares: number }[] = [];
-    for (const date of investmentDates) {
-      const price = findCloseOnOrBefore(history, date);
-      if (price === null || price <= 0) continue;
-      periods.push({ date, shares: appliedAmount / price });
-    }
-
-    totalInvested = periods.length * appliedAmount;
-    totalShares = periods.reduce((sum, p) => sum + p.shares, 0);
-
-    const lastClose = history[history.length - 1].close;
-    currentValue = totalShares * lastClose;
-
-    let cumulativeShares = 0;
-    let periodIndex = 0;
-    for (const point of history) {
-      const pointTime = new Date(point.date).getTime();
-      while (periodIndex < periods.length && periods[periodIndex].date.getTime() <= pointTime) {
-        cumulativeShares += periods[periodIndex].shares;
-        periodIndex++;
-      }
-      if (cumulativeShares > 0) {
-        chartPoints.push({ date: point.date, value: cumulativeShares * point.close });
-      }
-    }
+  function handleSimulate() {
+    runSimulation(ticker, amount, frequency, startDate, endDate);
   }
 
-  const overallReturnPct =
-    totalInvested > 0 ? ((currentValue - totalInvested) / totalInvested) * 100 : null;
+  function loadExample() {
+    setTicker(EXAMPLE.ticker);
+    setAmount(EXAMPLE.amount);
+    setFrequency(EXAMPLE.frequency);
+    setStartDate(EXAMPLE.startDate);
+    setEndDate(EXAMPLE.endDate);
+    runSimulation(EXAMPLE.ticker, EXAMPLE.amount, EXAMPLE.frequency, EXAMPLE.startDate, EXAMPLE.endDate);
+  }
+
+  const { totalInvested, totalShares, currentValue, overallReturnPercent: overallReturnPct, chartPoints } =
+    history && history.length > 0
+      ? calculateDca({
+          amount: appliedAmount,
+          frequency: appliedFrequency,
+          startDate: appliedStart,
+          endDate: appliedEnd,
+          history,
+        })
+      : { totalInvested: 0, totalShares: 0, currentValue: 0, overallReturnPercent: null, chartPoints: [] };
+
+  const { icon: Icon, color } = CONCEPT_VISUALS.dca;
+  const iconColorClass = CONCEPT_COLOR_CLASSES[color].icon;
 
   return (
     <main className="flex flex-1 flex-col items-center gap-6 p-8 pt-16">
-      <h1 className="text-3xl font-bold text-foreground">DCA Simulator</h1>
+      <div className="flex w-full max-w-2xl items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Icon className={iconColorClass} size={26} />
+          <h1 className="text-3xl font-bold text-foreground">DCA Simulator</h1>
+        </div>
+        <Link
+          href="/learning/dca"
+          className="flex items-center gap-1 text-xs text-foreground/60 hover:text-foreground hover:underline"
+        >
+          <BookOpen size={12} /> Learn about DCA
+        </Link>
+      </div>
 
       <ToolCard title="Inputs">
+        <div className="mb-4 flex items-center justify-between">
+          <span className="text-xs text-foreground/50">Real historical prices — press Simulate to run.</span>
+          <LoadExampleButton onClick={loadExample} />
+        </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label className="flex flex-col gap-1">
             <span className="text-sm font-medium text-foreground">Ticker Symbol</span>
@@ -170,6 +173,7 @@ export default function DcaSimulatorPage() {
             prefix="$"
             value={amount}
             onChange={setAmount}
+            error={amountError}
             helperText="Fixed dollar amount invested at each interval."
           />
 
@@ -208,13 +212,14 @@ export default function DcaSimulatorPage() {
               />
             </label>
           </div>
+          {dateOrderError && <p className="col-span-full text-xs text-red-500">{dateOrderError}</p>}
         </div>
 
         <button
           type="button"
           onClick={handleSimulate}
           disabled={loading}
-          className="mt-4 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90 disabled:opacity-50"
+          className="mt-4 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           {loading ? "Simulating…" : "Simulate"}
         </button>
@@ -226,11 +231,15 @@ export default function DcaSimulatorPage() {
         <ToolCard title={`Results — ${resolvedTicker}`}>
           <dl className="grid grid-cols-2 gap-y-2">
             <dt className="text-foreground/60">Total Invested</dt>
-            <dd className="text-right">{formatCurrency(totalInvested)}</dd>
+            <dd className="text-right">
+              <AnimatedNumber value={totalInvested} format={(v) => formatCurrency(v)} />
+            </dd>
             <dt className="text-foreground/60">Total Shares</dt>
             <dd className="text-right">{totalShares.toFixed(4)}</dd>
             <dt className="text-foreground/60">Current Value</dt>
-            <dd className="text-right">{formatCurrency(currentValue)}</dd>
+            <dd className="text-right">
+              <AnimatedNumber value={currentValue} format={(v) => formatCurrency(v)} />
+            </dd>
             <dt className="font-semibold text-foreground">Overall Return</dt>
             <dd
               className={`text-right font-semibold ${
@@ -239,7 +248,11 @@ export default function DcaSimulatorPage() {
                   : "text-red-500"
               }`}
             >
-              {overallReturnPct !== null ? formatPercent(overallReturnPct) : "—"}
+              {overallReturnPct !== null ? (
+                <AnimatedNumber value={overallReturnPct} format={(v) => formatPercent(v)} />
+              ) : (
+                "—"
+              )}
             </dd>
           </dl>
 
@@ -251,9 +264,25 @@ export default function DcaSimulatorPage() {
         </ToolCard>
       )}
 
-      <p className="w-full max-w-2xl text-xs text-foreground/60">
-        This is an educational estimation tool, not investment advice.
-      </p>
+      <HowItWorksAccordion>
+        <p>
+          Dollar-cost averaging (DCA) invests a fixed dollar amount at regular intervals,
+          regardless of price — buying more shares when the price is low and fewer when it&apos;s
+          high, which averages out your cost basis over time instead of betting on a single entry
+          point.
+        </p>
+        <p>
+          This simulator replays real historical closing prices for your chosen ticker, buying at
+          the nearest available close on or after each scheduled investment date, then compares
+          your total invested to the current value of everything you&apos;d have accumulated.
+        </p>
+      </HowItWorksAccordion>
+
+      <DisclaimerCallout>
+        This is an educational estimation tool, not investment advice. Past performance
+        doesn&apos;t predict future returns, and this simulation ignores taxes, fees, and dividends
+        unless they&apos;re already reflected in the price history.
+      </DisclaimerCallout>
     </main>
   );
 }

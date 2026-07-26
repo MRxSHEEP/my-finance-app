@@ -1,7 +1,26 @@
 import { NextResponse } from "next/server";
 import { SCREENER_TICKERS } from "@/lib/screenerTickers";
+import { STOCK_CATALOG } from "@/lib/stockCatalog";
 
 export const dynamic = "force-dynamic";
+
+// Sector labels now come from this app's own curated taxonomy (the same
+// one Stock Catalog and the Earnings Calendar use) rather than Finnhub's
+// raw `finnhubIndustry` string, so a sector filter here reuses the exact
+// same categories/colors instead of a second, incompatible label set —
+// confirmed live that 65 of the screener's 68 tickers already exist in
+// STOCK_CATALOG. The remaining 3 (V, MA, PANW) are hand-assigned below
+// rather than left to fall back to Finnhub's differently-shaped industry
+// strings, so every screener row maps cleanly into the shared taxonomy.
+const CATALOG_SECTOR_BY_SYMBOL = new Map(STOCK_CATALOG.map((entry) => [entry.symbol, entry.sector]));
+const FALLBACK_SECTOR_BY_SYMBOL: Record<string, string> = {
+  V: "Financials",
+  MA: "Financials",
+  PANW: "Technology",
+};
+function resolveSector(ticker: string): string {
+  return CATALOG_SECTOR_BY_SYMBOL.get(ticker) ?? FALLBACK_SECTOR_BY_SYMBOL[ticker] ?? "Other";
+}
 
 // Refreshed once per hour rather than per-request — fetching live
 // fundamentals for ~70 tickers on every screener visit isn't practical
@@ -27,6 +46,14 @@ interface ScreenerRow {
   peRatio: number | null;
   marketCap: number | null;
   dividendYield: number | null;
+  // Forward P/E, revenue growth, and ROE are all genuinely available from
+  // the same Finnhub metric=all call already being made (confirmed live —
+  // forwardPE, revenueGrowthTTMYoy, roeTTM). ROIC itself is NOT available
+  // from Finnhub's free metric set (only ROA/ROE), so this surfaces ROE
+  // — honestly labeled as ROE, not presented as a substitute for ROIC.
+  forwardPE: number | null;
+  revenueGrowth: number | null;
+  roe: number | null;
 }
 
 interface ScreenerData {
@@ -67,11 +94,14 @@ async function fetchRow(ticker: string, apiKey: string): Promise<ScreenerRow | n
   return {
     ticker,
     name: profile.name,
-    sector: profile.finnhubIndustry || "Other",
+    sector: resolveSector(ticker),
     price,
     peRatio: typeof metric?.peBasicExclExtraTTM === "number" ? metric.peBasicExclExtraTTM : null,
     marketCap,
     dividendYield: typeof metric?.dividendYieldIndicatedAnnual === "number" ? metric.dividendYieldIndicatedAnnual : null,
+    forwardPE: typeof metric?.forwardPE === "number" ? metric.forwardPE : null,
+    revenueGrowth: typeof metric?.revenueGrowthTTMYoy === "number" ? metric.revenueGrowthTTMYoy : null,
+    roe: typeof metric?.roeTTM === "number" ? metric.roeTTM : null,
   };
 }
 
