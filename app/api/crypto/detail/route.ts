@@ -27,15 +27,29 @@ interface CryptoOverview {
   marketCap: number;
   totalVolume: number;
   circulatingSupply: number | null;
+  totalSupply: number | null;
+  maxSupply: number | null;
   ath: number | null;
   athDate: string | null;
+  athChangePercentage: number | null;
   atl: number | null;
   atlDate: string | null;
+}
+
+interface SeriesPoint {
+  date: string;
+  value: number;
 }
 
 interface CryptoDetailData {
   overview: CryptoOverview | null;
   history: HistoryPointOut[];
+  // Only populated for chartType=line (the market_chart endpoint the
+  // price history comes from also carries these two series in the same
+  // response, at no extra request cost — the OHLC endpoint behind
+  // candlestick mode doesn't have an equivalent).
+  marketCapHistory: SeriesPoint[];
+  volumeHistory: SeriesPoint[];
 }
 
 function daysForRange(range: Range): number | "max" {
@@ -94,29 +108,48 @@ async function fetchOverview(id: string): Promise<CryptoOverview | null> {
     marketCap: coin.market_cap,
     totalVolume: coin.total_volume,
     circulatingSupply: coin.circulating_supply ?? null,
+    totalSupply: coin.total_supply ?? null,
+    maxSupply: coin.max_supply ?? null,
     ath: coin.ath ?? null,
     athDate: coin.ath_date ?? null,
+    athChangePercentage: coin.ath_change_percentage ?? null,
     atl: coin.atl ?? null,
     atlDate: coin.atl_date ?? null,
   };
 }
 
-async function fetchLineHistory(id: string, days: number | "max"): Promise<HistoryPointOut[]> {
+interface LineHistoryResult {
+  history: HistoryPointOut[];
+  marketCapHistory: SeriesPoint[];
+  volumeHistory: SeriesPoint[];
+}
+
+function seriesFromPairs(pairs: Array<[number, number]>): SeriesPoint[] {
+  return pairs.map(([ms, value]) => ({ date: msToChartDate(ms), value }));
+}
+
+async function fetchLineHistory(id: string, days: number | "max"): Promise<LineHistoryResult> {
   const response = await fetch(
     `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=${days}`
   ).catch(() => null);
-  if (!response?.ok) return [];
+  if (!response?.ok) return { history: [], marketCapHistory: [], volumeHistory: [] };
 
   const body = await response.json().catch(() => null);
   const prices: Array<[number, number]> = Array.isArray(body?.prices) ? body.prices : [];
+  const marketCaps: Array<[number, number]> = Array.isArray(body?.market_caps) ? body.market_caps : [];
+  const volumes: Array<[number, number]> = Array.isArray(body?.total_volumes) ? body.total_volumes : [];
 
-  return prices.map(([ms, price]) => ({
-    date: msToChartDate(ms),
-    open: price,
-    high: price,
-    low: price,
-    close: price,
-  }));
+  return {
+    history: prices.map(([ms, price]) => ({
+      date: msToChartDate(ms),
+      open: price,
+      high: price,
+      low: price,
+      close: price,
+    })),
+    marketCapHistory: seriesFromPairs(marketCaps),
+    volumeHistory: seriesFromPairs(volumes),
+  };
 }
 
 async function fetchCandlestickHistory(id: string, days: number | "max"): Promise<HistoryPointOut[]> {
@@ -154,12 +187,19 @@ export async function GET(request: NextRequest) {
     CACHE_TTL_MS,
     async (): Promise<CryptoDetailData> => {
       const days = daysForRange(range);
-      const [overview, history] = await Promise.all([
-        fetchOverview(id),
-        chartType === "candlestick" ? fetchCandlestickHistory(id, days) : fetchLineHistory(id, days),
-      ]);
 
-      return { overview, history };
+      if (chartType === "candlestick") {
+        const [overview, history] = await Promise.all([fetchOverview(id), fetchCandlestickHistory(id, days)]);
+        return { overview, history, marketCapHistory: [], volumeHistory: [] };
+      }
+
+      const [overview, lineResult] = await Promise.all([fetchOverview(id), fetchLineHistory(id, days)]);
+      return {
+        overview,
+        history: lineResult.history,
+        marketCapHistory: lineResult.marketCapHistory,
+        volumeHistory: lineResult.volumeHistory,
+      };
     }
   );
 

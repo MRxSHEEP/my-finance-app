@@ -1,54 +1,103 @@
 import { NextResponse } from "next/server";
 import {
+  dedupeAndSortArticles,
+  dedupeSimilarTitles,
+  FALLBACK_WINDOW_MS,
   fetchAndCleanMarketaux,
-  fetchAndCleanNewsApi,
-  mergeArticleSources,
+  filterRecentArticles,
+  isEnglishScript,
+  isFromWireService,
+  MAJOR_CRYPTO_SYMBOLS,
+  MARKETAUX_CACHE_TTL_MS,
+  toMarketauxDate,
+  type NewsArticle,
 } from "@/lib/newsApi";
-import { withCache } from "@/lib/newsCache";
+import { withCacheAndFallback } from "@/lib/newsCache";
 
-// fetchAndCleanNewsApi/fetchAndCleanMarketaux both build their query params
-// as `{ ...defaultQuery, ...params }`, so passing `q`/`search` here
-// overrides the general-market default query from lib/newsApi.ts (used by
-// /api/news) without needing to touch that shared module.
-const CRYPTO_NEWS_QUERY = "bitcoin OR ethereum OR cryptocurrency OR crypto market";
-const PAGE_SIZE = "9";
+export const dynamic = "force-dynamic";
 
-// Same TTL reasoning as app/api/news/route.ts: NewsAPI's is mostly a
-// de-dup safety net, Marketaux's protects its 100-requests/day cap.
-const NEWSAPI_CACHE_TTL_MS = 60_000;
-const MARKETAUX_CACHE_TTL_MS = 20 * 60_000;
+// A cap, not a target — fewer genuinely relevant articles is preferred
+// over padding this out with anything weaker just to hit a round number.
+const RESULT_COUNT = 9;
+
+function isSameUtcDay(dateStr: string, reference: Date): boolean {
+  const d = new Date(dateStr);
+  return (
+    d.getUTCFullYear() === reference.getUTCFullYear() &&
+    d.getUTCMonth() === reference.getUTCMonth() &&
+    d.getUTCDate() === reference.getUTCDate()
+  );
+}
+
+// Marketaux's own entity recognition does the relevance work now:
+// `symbols` matches the curated major-coin list by recognized entity,
+// `entity_types=cryptocurrency` keeps matches scoped to crypto entities
+// specifically (not e.g. a stock ticker that happens to collide with a
+// coin symbol), and `must_have_entities`/`filter_entities` keep the
+// result set to genuinely tagged coverage — replacing the old
+// CRYPTO_STRONG_CONFIRMATION_TERMS/NON_CRYPTO_NOISE_TERMS title-keyword
+// pipeline this route used to hand-roll for NewsAPI's benefit.
+async function loadMarketaux(): Promise<{ articles: NewsArticle[]; ok: boolean }> {
+  const apiKey = process.env.MARKETAUX_API_KEY;
+  const now = new Date();
+  const todayIso = now.toISOString().slice(0, 10);
+  const baseParams = {
+    symbols: MAJOR_CRYPTO_SYMBOLS,
+    entity_types: "cryptocurrency",
+    must_have_entities: "true",
+    filter_entities: "true",
+    limit: "20",
+  };
+
+  const todayResult = await fetchAndCleanMarketaux(apiKey, {
+    ...baseParams,
+    published_after: `${todayIso}T00:00:00`,
+  });
+
+  const todayOnly = todayResult.articles.filter(
+    (a) => a.publishedAt && isSameUtcDay(a.publishedAt, now)
+  );
+  if (todayOnly.length > 0) return { articles: todayOnly, ok: todayResult.ok };
+
+  // Widen to a bounded fallback window rather than showing nothing —
+  // never the unbounded "whatever's most recent" query that let stale/
+  // unrelated articles leak in on other feeds before this same fix.
+  const fallbackResult = await fetchAndCleanMarketaux(apiKey, {
+    ...baseParams,
+    published_after: toMarketauxDate(new Date(now.getTime() - FALLBACK_WINDOW_MS)),
+  });
+  return { articles: fallbackResult.articles, ok: todayResult.ok || fallbackResult.ok };
+}
 
 export async function GET() {
-  const newsApiKey = process.env.NEWSAPI_KEY;
   const marketauxKey = process.env.MARKETAUX_API_KEY;
 
-  const [newsApiResult, marketauxResult] = await Promise.all([
-    withCache("crypto:newsapi", NEWSAPI_CACHE_TTL_MS, () =>
-      fetchAndCleanNewsApi(newsApiKey, {
-        q: CRYPTO_NEWS_QUERY,
-        sortBy: "publishedAt",
-        language: "en",
-        pageSize: PAGE_SIZE,
-        page: "1",
-      })
-    ),
-    withCache("crypto:marketaux", MARKETAUX_CACHE_TTL_MS, () =>
-      fetchAndCleanMarketaux(marketauxKey, {
-        search: CRYPTO_NEWS_QUERY,
-        limit: "3",
-        page: "1",
-      })
-    ),
-  ]);
-
-  if (!newsApiResult.ok && !marketauxResult.ok) {
+  if (!marketauxKey) {
     return NextResponse.json(
-      { error: "Both NewsAPI and Marketaux requests failed" },
-      { status: 502 }
+      { error: "Server is missing MARKETAUX_API_KEY configuration" },
+      { status: 500 }
     );
   }
 
-  const articles = mergeArticleSources(newsApiResult.articles, marketauxResult.articles);
+  const { data: marketauxResult, stale, staleFetchedAt } = await withCacheAndFallback(
+    "crypto-news:marketaux",
+    MARKETAUX_CACHE_TTL_MS,
+    loadMarketaux,
+    (result) => result.ok,
+    true
+  );
 
-  return NextResponse.json({ articles });
+  if (!marketauxResult.ok && !stale) {
+    return NextResponse.json({ articles: [], degraded: true });
+  }
+
+  const articles: NewsArticle[] = dedupeSimilarTitles(
+    dedupeAndSortArticles(filterRecentArticles(marketauxResult.articles))
+  )
+    .filter((a) => !isFromWireService(a))
+    .filter(isEnglishScript)
+    .slice(0, RESULT_COUNT)
+    .map((article) => ({ ...article, category: "Crypto" }));
+
+  return NextResponse.json({ articles, stale, staleFetchedAt });
 }

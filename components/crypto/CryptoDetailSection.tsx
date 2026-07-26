@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Lock, LockOpen } from "lucide-react";
 import PriceChart, {
   changeColorClass,
@@ -13,6 +14,8 @@ import PriceChart, {
   type HistoryPoint,
   type Range,
 } from "@/components/PriceChart";
+import type { CoinRanking } from "@/lib/cryptoTypes";
+import { SCROLLBAR_THIN_CLASS } from "@/lib/scrollbarStyles";
 
 interface SearchResult {
   id: string;
@@ -54,7 +57,19 @@ const compactFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
-export default function CryptoDetailSection() {
+interface CryptoDetailSectionProps {
+  // The same shared /api/crypto/rankings dataset the rest of the page
+  // reads — when the selected coin appears in it, its price/market cap/
+  // volume/24h change override this component's own /api/crypto/detail
+  // fetch for those specific fields (see displayOverview below), so a
+  // searched Bitcoin shows the exact same numbers as every other section
+  // rather than a slightly different one from a separately-timed fetch
+  // against the same provider.
+  sharedCoins: CoinRanking[] | null;
+}
+
+export default function CryptoDetailSection({ sharedCoins }: CryptoDetailSectionProps) {
+  const searchParams = useSearchParams();
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<SearchResult[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -142,6 +157,31 @@ export default function CryptoDetailSection() {
     setShowSuggestions(false);
   }
 
+  // Deep-link support for the top ticker bar's Bitcoin item (and any
+  // other future `/crypto?coin=...` link): the coin's id/symbol/name are
+  // passed directly rather than triggering a search, since the caller
+  // already knows them — skips an extra /api/crypto/search round trip.
+  // Reacts to the param itself (not a mount-only effect) so clicking the
+  // ticker again while already on /crypto still re-triggers, the same
+  // reasoning as the stocks page's own `?ticker=` handling.
+  useEffect(() => {
+    const coinId = searchParams.get("coin");
+    if (!coinId || coinId === selected?.id) return;
+
+    const symbol = (searchParams.get("symbol") ?? coinId).toUpperCase();
+    const name = searchParams.get("name") ?? coinId;
+
+    function syncFromUrl() {
+      setSelected({ id: coinId!, symbol, name });
+      setQuery(`${name} (${symbol})`);
+      setShowSuggestions(false);
+    }
+    syncFromUrl();
+    // selected is intentionally omitted — it's set by this very effect,
+    // and only the URL's `coin` param should retrigger it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   // Loads overview + chart history together whenever the selected coin,
   // range, or chart type changes.
   useEffect(() => {
@@ -181,16 +221,33 @@ export default function CryptoDetailSection() {
     };
   }, [selected, range, chartType]);
 
+  // Overrides just the fields the shared rankings dataset actually
+  // carries (price/market cap/volume/24h change) when the selected coin
+  // is in it — ath/atl/circulatingSupply only ever come from this
+  // component's own /api/crypto/detail fetch, since rankings doesn't
+  // provide them at all.
+  const matchedSharedCoin = selected ? sharedCoins?.find((coin) => coin.id === selected.id) ?? null : null;
+  const displayOverview: CryptoOverview | null =
+    overview && matchedSharedCoin
+      ? {
+          ...overview,
+          currentPrice: matchedSharedCoin.currentPrice,
+          percentChange24h: matchedSharedCoin.percentChange24h,
+          marketCap: matchedSharedCoin.marketCap,
+          totalVolume: matchedSharedCoin.totalVolume,
+        }
+      : overview;
+
   const periodStartPrice = history && history.length > 0 ? history[0].close : null;
   const activePoint =
     hoveredPoint ?? (history && history.length > 0 ? history[history.length - 1] : null);
-  const displayPrice = activePoint ? activePoint.close : overview?.currentPrice ?? 0;
+  const displayPrice = activePoint ? activePoint.close : displayOverview?.currentPrice ?? 0;
   const displayDollarChange =
     activePoint && periodStartPrice !== null ? activePoint.close - periodStartPrice : 0;
   const displayPercentChange =
     activePoint && periodStartPrice
       ? (displayDollarChange / periodStartPrice) * 100
-      : overview?.percentChange24h ?? 0;
+      : displayOverview?.percentChange24h ?? 0;
 
   return (
     <section className="flex w-full flex-col items-center gap-4">
@@ -208,7 +265,7 @@ export default function CryptoDetailSection() {
             className="w-full rounded-md border border-black/10 bg-transparent px-3 py-2 text-sm outline-none focus:border-black/30 dark:border-white/15 dark:focus:border-white/30"
           />
           {showSuggestions && suggestions.length > 0 && (
-            <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-auto rounded-md border border-black/10 bg-background text-sm shadow-lg dark:border-white/15">
+            <ul className={`absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-auto rounded-md border border-black/10 bg-background text-sm shadow-lg dark:border-white/15 ${SCROLLBAR_THIN_CLASS}`}>
               {suggestions.map((result) => (
                 <li key={result.id}>
                   <button
@@ -264,14 +321,14 @@ export default function CryptoDetailSection() {
                 <button
                   onClick={() => setLocked((value) => !value)}
                   aria-label={locked ? "Unlock chart panning" : "Lock chart panning"}
-                  className="rounded-md border border-black/10 p-1.5 text-foreground/60 hover:text-foreground dark:border-white/15"
+                  className="flex h-10 w-10 items-center justify-center rounded-md border border-black/10 text-foreground/60 hover:text-foreground dark:border-white/15"
                 >
                   {locked ? <Lock size={14} /> : <LockOpen size={14} />}
                 </button>
                 <button
                   onClick={() => setIsExpanded((value) => !value)}
                   aria-label={isExpanded ? "Close fullscreen" : "Expand chart"}
-                  className="rounded-md border border-black/10 px-2 py-1 text-foreground/60 hover:text-foreground dark:border-white/15"
+                  className="flex h-10 w-10 items-center justify-center rounded-md border border-black/10 text-foreground/60 hover:text-foreground dark:border-white/15"
                 >
                   {isExpanded ? "✕" : "⤢"}
                 </button>
@@ -320,38 +377,38 @@ export default function CryptoDetailSection() {
         </div>
       )}
 
-      {selected && overview && (
+      {selected && displayOverview && (
         <div className="grid w-full max-w-xl grid-cols-2 gap-4 rounded-md border border-black/10 p-4 text-sm dark:border-white/15 sm:grid-cols-3">
           <div>
             <span className="block text-xs text-foreground/50">Market Cap</span>
             <span className="font-semibold text-foreground">
-              {compactCurrencyFormatter.format(overview.marketCap)}
+              {compactCurrencyFormatter.format(displayOverview.marketCap)}
             </span>
           </div>
           <div>
             <span className="block text-xs text-foreground/50">24h Volume</span>
             <span className="font-semibold text-foreground">
-              {compactCurrencyFormatter.format(overview.totalVolume)}
+              {compactCurrencyFormatter.format(displayOverview.totalVolume)}
             </span>
           </div>
           <div>
             <span className="block text-xs text-foreground/50">Circulating Supply</span>
             <span className="font-semibold text-foreground">
-              {overview.circulatingSupply !== null
-                ? compactFormatter.format(overview.circulatingSupply)
+              {displayOverview.circulatingSupply !== null
+                ? compactFormatter.format(displayOverview.circulatingSupply)
                 : "—"}
             </span>
           </div>
           <div>
             <span className="block text-xs text-foreground/50">All-Time High</span>
             <span className="font-semibold text-foreground">
-              {overview.ath !== null ? currencyFormatter.format(overview.ath) : "—"}
+              {displayOverview.ath !== null ? currencyFormatter.format(displayOverview.ath) : "—"}
             </span>
           </div>
           <div>
             <span className="block text-xs text-foreground/50">All-Time Low</span>
             <span className="font-semibold text-foreground">
-              {overview.atl !== null ? currencyFormatter.format(overview.atl) : "—"}
+              {displayOverview.atl !== null ? currencyFormatter.format(displayOverview.atl) : "—"}
             </span>
           </div>
         </div>
