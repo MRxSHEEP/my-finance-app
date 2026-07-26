@@ -28,7 +28,12 @@ export async function POST(request: NextRequest) {
   if (auth.error) return auth.error;
 
   const body = await request.json().catch(() => null);
-  const symbol = typeof body?.symbol === "string" ? body.symbol.trim().toUpperCase() : "";
+  const assetType = body?.assetType === "crypto" ? "crypto" : "stock";
+  // Stock tickers are conventionally uppercase (AAPL); crypto ids are
+  // CoinGecko's own lowercase slugs (bitcoin) and must stay that way to
+  // round-trip into /api/crypto/detail?id=.
+  const rawSymbol = typeof body?.symbol === "string" ? body.symbol.trim() : "";
+  const symbol = assetType === "crypto" ? rawSymbol.toLowerCase() : rawSymbol.toUpperCase();
   const name = typeof body?.name === "string" && body.name.trim() ? body.name.trim() : undefined;
 
   if (!symbol) {
@@ -40,7 +45,7 @@ export async function POST(request: NextRequest) {
   const item = await prisma.watchlistItem.upsert({
     where: { userId_symbol: { userId: auth.userId, symbol } },
     update: {},
-    create: { userId: auth.userId, symbol, name },
+    create: { userId: auth.userId, symbol, name, assetType },
   });
 
   return NextResponse.json({ item }, { status: 201 });
