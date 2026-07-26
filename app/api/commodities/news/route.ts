@@ -1,134 +1,146 @@
 import { NextResponse } from "next/server";
 import {
+  COMMODITY_ANCHOR_TERMS,
+  COMMODITY_DENYLIST_TERMS,
+  dedupeAndSortArticles,
+  dedupeSimilarTitles,
+  FALLBACK_WINDOW_MS,
   fetchAndCleanMarketaux,
-  fetchAndCleanNewsApi,
-  mergeArticleSources,
+  filterRecentArticles,
+  isEnglishScript,
+  isFromWireService,
+  MARKETAUX_CACHE_TTL_MS,
+  toMarketauxDate,
   type NewsArticle,
+  type SourceResult,
 } from "@/lib/newsApi";
-import { withCache } from "@/lib/newsCache";
+import { withCacheAndFallback } from "@/lib/newsCache";
 
-// fetchAndCleanNewsApi/fetchAndCleanMarketaux both build their query params
-// as `{ ...defaultQuery, ...params }`, so passing `q`/`search` here
-// overrides the general-market default query from lib/newsApi.ts (used by
-// /api/news) without needing to touch that shared module.
-//
-// Quoted market-context phrases rather than bare commodity names — bare
-// "gold"/"silver"/"corn" match jewelry, car trim/paint names, and
-// unrelated consumer content (confirmed live: a Land Rover listing showed
-// up under the old bare-word query, almost certainly via "gold"/"silver"
-// as paint colors). Phrasing every term as a market context cuts that off
-// at the query itself, before the denylist filter below even runs.
-const COMMODITIES_NEWS_QUERY =
-  '"gold price" OR "gold market" OR "crude oil price" OR "oil prices" OR OPEC OR "natural gas prices" OR "silver market" OR "commodity prices" OR "copper prices"';
-const PAGE_SIZE = "9";
-
-// Marketaux's `industries` param does filter (confirmed live: pairing the
-// query above with industries=Financial dropped result count to zero),
-// but with no documented taxonomy to test against, an untested value is
-// as likely to silently over-filter as it is to help — worse than doing
-// nothing. Skipped in favor of the query + denylist below, both of which
-// were verified against real results.
-//
-// NewsAPI's /v2/everything endpoint (what's used here and by /api/news)
-// has no category param at all — that only exists on /v2/top-headlines,
-// which doesn't support this kind of free-text query.
-
-// Safety net for whatever still slips past the tightened query above: if
-// an article's title/description contains a term that tends to
-// false-positive on commodity keywords, only keep it when a clear market
-// term is *also* present. This is deliberately narrow (real automotive/
-// jewelry terms observed or specified, not bare words like "watch" that
-// would false-positive on ordinary market phrasing like "investors watch
-// gold prices").
-const DENYLIST_TERMS = [
-  "wedding ring",
-  "engagement ring",
-  "jewelry",
-  "jewellery",
-  "necklace",
-  "bracelet",
-  "earrings",
-  "vehicle",
-  "sedan",
-  "suv",
-  "coupe",
-  "convertible",
-  "horsepower",
-  "mileage",
-  "supercharged",
-  "test drive",
-  "dealership",
-  "land rover",
-  "range rover",
-  "for sale by owner",
-];
-
-const MARKET_CONTEXT_TERMS = [
-  "price",
-  "prices",
-  "market",
-  "markets",
-  "futures",
-  "barrel",
-  "ounce",
-  "opec",
-  "supply",
-  "demand",
-  "production",
-  "inventory",
-  "trading",
-  "export",
-  "import",
-  "reserve",
-  "reserves",
-  "commodity",
-  "commodities",
-];
+// Live-verified: Marketaux's `search` parameter does NOT support n-ary
+// boolean OR the way the previous version of this route assumed (a
+// holdover mental model from the NewsAPI-era query syntax, before this
+// app consolidated onto Marketaux — see lib/newsApi.ts's own header
+// comment on that migration). Confirmed directly against the live API:
+// `search=gold` alone found 830 matches in a 7-day window, `search=oil`
+// found 1681, but `search=gold OR oil` found only 125 — a genuine union
+// would be >= 1681, not roughly a tenth of it. Adding more " OR term"
+// clauses only shrinks the result count further (an 8-term chain of
+// exactly this shape found 0), consistent with everything after the
+// first clause acting like an additional required term rather than an
+// alternative. That's why the previous exhaustively-quoted, 9-clause OR
+// query always returned zero articles within the 7-day recency window
+// this route enforces — not a genuine lack of Marketaux commodities
+// coverage. A single, broad, unquoted term avoids the whole problem;
+// "commodities" itself is inherently financial/economic vocabulary
+// (unlike bare "gold"/"oil"/"silver", which also catch jewelry/car
+// content), so it needs no quoting and stays clean on its own — the
+// COMMODITY_ANCHOR_TERMS + COMMODITY_DENYLIST_TERMS filter below (shared
+// with the general News feed's classifier, see lib/newsApi.ts) is kept as
+// a second layer regardless.
+const COMMODITIES_NEWS_QUERY = "commodities";
 
 function isLikelyRelevant(article: NewsArticle): boolean {
+  if (isFromWireService(article)) return false;
+
+  const title = article.title.toLowerCase();
+  if (!COMMODITY_ANCHOR_TERMS.some((term) => title.includes(term))) return false;
+
   const text = `${article.title} ${article.description ?? ""}`.toLowerCase();
-  const hasDenylistedTerm = DENYLIST_TERMS.some((term) => text.includes(term));
-  if (!hasDenylistedTerm) return true;
-  return MARKET_CONTEXT_TERMS.some((term) => text.includes(term));
+  return !COMMODITY_DENYLIST_TERMS.some((term) => text.includes(term));
 }
 
-// Same TTL reasoning as app/api/news/route.ts: NewsAPI's is mostly a
-// de-dup safety net, Marketaux's protects its 100-requests/day cap.
-const NEWSAPI_CACHE_TTL_MS = 60_000;
-const MARKETAUX_CACHE_TTL_MS = 20 * 60_000;
+function isSameUtcDay(dateStr: string, reference: Date): boolean {
+  const d = new Date(dateStr);
+  return (
+    d.getUTCFullYear() === reference.getUTCFullYear() &&
+    d.getUTCMonth() === reference.getUTCMonth() &&
+    d.getUTCDate() === reference.getUTCDate()
+  );
+}
+
+// Same today-first, 72h-fallback tiering as the stock/crypto news routes
+// (app/api/stock/news/route.ts, app/api/crypto/news/route.ts) — kept to
+// exactly 2 Marketaux calls per cache refresh (same as those routes), not
+// one call per commodity/term: this account's usage quota is tight
+// (confirmed live via the `x-usagelimit-limit`/`x-usagelimit-remaining`
+// response headers — a small fixed budget, not a generous per-minute
+// rate limit), so this route makes the same number of upstream requests
+// as every other Marketaux consumer rather than scaling with the number
+// of commodities tracked.
+async function loadMarketaux(): Promise<SourceResult> {
+  const apiKey = process.env.MARKETAUX_API_KEY;
+  const now = new Date();
+  const todayIso = now.toISOString().slice(0, 10);
+  const baseParams = { search: COMMODITIES_NEWS_QUERY, limit: "20" };
+
+  const todayResult = await fetchAndCleanMarketaux(apiKey, {
+    ...baseParams,
+    published_after: `${todayIso}T00:00:00`,
+  });
+
+  const todayOnly = todayResult.articles.filter(
+    (a) => a.publishedAt && isSameUtcDay(a.publishedAt, now)
+  );
+  if (todayOnly.length > 0) return { articles: todayOnly, ok: todayResult.ok };
+
+  const fallbackResult = await fetchAndCleanMarketaux(apiKey, {
+    ...baseParams,
+    published_after: toMarketauxDate(new Date(now.getTime() - FALLBACK_WINDOW_MS)),
+  });
+  return { articles: fallbackResult.articles, ok: todayResult.ok || fallbackResult.ok };
+}
+
+// This account's Marketaux plan only ever returns 3 articles per request
+// regardless of the `limit` param (confirmed live via the response's own
+// `meta.limit`), and the usage quota is too tight (~100 requests total,
+// shared across every Marketaux consumer in the app) to fetch additional
+// pages just to pad this one list out. Instead of discarding the previous
+// cache cycle's articles the moment a new (still-just-3-article) fetch
+// resolves, this keeps a rolling, deduped, capped window that accumulates
+// across cache refreshes — the same 2-calls-per-25-minutes cadence as
+// before, just remembered for longer, so the list genuinely grows over a
+// few refresh cycles instead of only ever showing whatever the single
+// latest fetch happened to return. Still bounded by MAX_ARTICLE_AGE_MS
+// (via filterRecentArticles below), so nothing lingers past a week.
+const ROLLING_ARTICLE_CAP = 20;
+let rollingArticles: NewsArticle[] = [];
+
+function mergeIntoRollingArticles(fresh: NewsArticle[]): NewsArticle[] {
+  const merged = dedupeSimilarTitles(
+    dedupeAndSortArticles(filterRecentArticles([...fresh, ...rollingArticles]))
+  );
+  rollingArticles = merged.slice(0, ROLLING_ARTICLE_CAP);
+  return rollingArticles;
+}
 
 export async function GET() {
-  const newsApiKey = process.env.NEWSAPI_KEY;
   const marketauxKey = process.env.MARKETAUX_API_KEY;
 
-  const [newsApiResult, marketauxResult] = await Promise.all([
-    withCache("commodities:newsapi", NEWSAPI_CACHE_TTL_MS, () =>
-      fetchAndCleanNewsApi(newsApiKey, {
-        q: COMMODITIES_NEWS_QUERY,
-        sortBy: "publishedAt",
-        language: "en",
-        pageSize: PAGE_SIZE,
-        page: "1",
-      })
-    ),
-    withCache("commodities:marketaux", MARKETAUX_CACHE_TTL_MS, () =>
-      fetchAndCleanMarketaux(marketauxKey, {
-        search: COMMODITIES_NEWS_QUERY,
-        limit: "3",
-        page: "1",
-      })
-    ),
-  ]);
-
-  if (!newsApiResult.ok && !marketauxResult.ok) {
+  if (!marketauxKey) {
     return NextResponse.json(
-      { error: "Both NewsAPI and Marketaux requests failed" },
-      { status: 502 }
+      { error: "Server is missing MARKETAUX_API_KEY configuration" },
+      { status: 500 }
     );
   }
 
-  const merged = mergeArticleSources(newsApiResult.articles, marketauxResult.articles);
-  const articles = merged.filter(isLikelyRelevant);
+  const { data: marketauxResult, stale, staleFetchedAt } = await withCacheAndFallback(
+    "commodities:marketaux",
+    MARKETAUX_CACHE_TTL_MS,
+    loadMarketaux,
+    (result) => result.ok,
+    true
+  );
 
-  return NextResponse.json({ articles });
+  if (!marketauxResult.ok && !stale && rollingArticles.length === 0) {
+    return NextResponse.json({ articles: [], degraded: true });
+  }
+
+  const fresh = marketauxResult.articles.filter(isLikelyRelevant).filter(isEnglishScript);
+
+  const articles: NewsArticle[] = mergeIntoRollingArticles(fresh).map((article) => ({
+    ...article,
+    category: "Commodities",
+  }));
+
+  return NextResponse.json({ articles, stale, staleFetchedAt });
 }
