@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveTickerSymbol } from "@/lib/resolveTicker";
 import { withCache } from "@/lib/newsCache";
+import { fetchFmpEarnings } from "@/lib/fmp";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,10 @@ interface EarningsQuarter {
 interface EarningsData {
   nextEarningsDate: string | null;
   quarters: EarningsQuarter[];
+}
+
+function daysBetween(isoA: string, isoB: string): number {
+  return Math.abs((new Date(isoA).getTime() - new Date(isoB).getTime()) / 86_400_000);
 }
 
 export async function GET(request: NextRequest) {
@@ -51,13 +56,14 @@ export async function GET(request: NextRequest) {
     to.setUTCDate(to.getUTCDate() + 120);
     const toStr = to.toISOString().slice(0, 10);
 
-    const [calendarResponse, historyResponse] = await Promise.all([
+    const [calendarResponse, historyResponse, fmpEarnings] = await Promise.all([
       fetch(
         `https://finnhub.io/api/v1/calendar/earnings?from=${from}&to=${toStr}&symbol=${encodeURIComponent(ticker)}&token=${apiKey}`
       ).catch(() => null),
       fetch(
         `https://finnhub.io/api/v1/stock/earnings?symbol=${encodeURIComponent(ticker)}&token=${apiKey}`
       ).catch(() => null),
+      fetchFmpEarnings(ticker),
     ]);
 
     let nextEarningsDate: string | null = null;
@@ -77,6 +83,13 @@ export async function GET(request: NextRequest) {
       nextEarningsDate = upcoming[0]?.date ?? null;
     }
 
+    // Finnhub's calendar sometimes lags a freshly-scheduled report date —
+    // fall back to FMP's own upcoming (epsActual: null) entry if Finnhub
+    // came back empty.
+    if (!nextEarningsDate && fmpEarnings) {
+      nextEarningsDate = fmpEarnings.find((entry) => entry.epsActual === null)?.date ?? null;
+    }
+
     let quarters: EarningsQuarter[] = [];
     if (historyResponse?.ok) {
       const historyBody = await historyResponse.json().catch(() => null);
@@ -93,14 +106,59 @@ export async function GET(request: NextRequest) {
       }> = Array.isArray(historyBody) ? historyBody : [];
 
       quarters = raw
-        .map((entry) => ({
-          period: entry.period,
-          year: entry.year,
-          quarter: entry.quarter,
-          actual: entry.actual,
-          estimate: entry.estimate,
-          surprisePercent: entry.surprisePercent,
-        }))
+        .map((entry) => {
+          // Finnhub's `period` is itself the fiscal period-end date, so it
+          // can be matched against FMP's `date` for the same report —
+          // within a few days' tolerance to absorb small vendor
+          // discrepancies in the exact date recorded. Finnhub remains the
+          // source of truth for year/quarter labeling (FMP's endpoint
+          // doesn't return a fiscal quarter number, only a date, and
+          // approximating one from the calendar month would mislabel any
+          // company with a non-calendar fiscal year).
+          const fmpMatch = fmpEarnings?.find((fe) => daysBetween(fe.date, entry.period) <= 5);
+          const usedFmpActual = typeof fmpMatch?.epsActual === "number";
+          const usedFmpEstimate = typeof fmpMatch?.epsEstimated === "number";
+          const actual = usedFmpActual ? (fmpMatch!.epsActual as number) : entry.actual;
+          const estimate = usedFmpEstimate ? (fmpMatch!.epsEstimated as number) : entry.estimate;
+
+          // Only recompute the surprise when an FMP value actually
+          // replaced a Finnhub one — otherwise keep Finnhub's own
+          // reported figure unchanged.
+          const surprisePercent =
+            (usedFmpActual || usedFmpEstimate) &&
+            typeof actual === "number" &&
+            typeof estimate === "number" &&
+            estimate !== 0
+              ? ((actual - estimate) / Math.abs(estimate)) * 100
+              : entry.surprisePercent;
+
+          // Finnhub's own `year` is a fiscal-year label, which can
+          // legitimately differ by 1 from the period-end date's calendar
+          // year for a company with a non-calendar fiscal year (e.g.
+          // Microsoft/Nvidia name a fiscal year for the year it ends in,
+          // so a quarter ending Sept 2025 is fiscal year 2026) — but has
+          // been observed coming back with an implausible value (e.g.
+          // 2000) for a period that's clearly recent. A one-year fiscal
+          // offset is always legitimate; a wider gap isn't a real fiscal
+          // year, it's bad data, so fall back to the period's own
+          // calendar year in that case rather than trusting Finnhub blindly.
+          const periodCalendarYear = Number(entry.period.slice(0, 4));
+          const year =
+            typeof entry.year === "number" &&
+            Number.isFinite(entry.year) &&
+            Math.abs(entry.year - periodCalendarYear) <= 1
+              ? entry.year
+              : periodCalendarYear;
+
+          return {
+            period: entry.period,
+            year,
+            quarter: entry.quarter,
+            actual,
+            estimate,
+            surprisePercent,
+          };
+        })
         .reverse(); // oldest first, so the chart reads left-to-right chronologically
     }
 
