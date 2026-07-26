@@ -1,18 +1,33 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import {
   Newspaper,
   TrendingUp,
   Bitcoin,
   Fuel,
-  LineChart,
+  UserSearch,
   GraduationCap,
   Calculator,
+  Sparkles,
+  Sunrise,
+  BarChart3,
+  Grid3x3,
   type LucideIcon,
 } from "lucide-react";
 import RevealOnScroll from "@/components/RevealOnScroll";
+import WatchlistDigestSection from "@/components/digest/WatchlistDigestSection";
+import SectorCompanyCards from "@/components/digest/SectorCompanyCards";
+import NewsDigestSection from "@/components/digest/NewsDigestSection";
+import EarningsDigestSection from "@/components/digest/EarningsDigestSection";
+import MoversDigestSection from "@/components/digest/MoversDigestSection";
+import InsiderActivityDigestSection from "@/components/digest/InsiderActivityDigestSection";
+import DashboardConfigButton from "@/components/digest/DashboardConfigButton";
+import type { DashboardConfigResult } from "@/components/digest/DashboardConfigPanel";
+import { DEFAULT_SECTION_ORDER, type SectionKey, isSectionKey } from "@/lib/digest/sections";
+import type { CatalogSector } from "@/lib/stockCatalog";
 
 const FEATURES: Array<{
   label: string;
@@ -24,7 +39,7 @@ const FEATURES: Array<{
   { label: "Stocks", href: "/stocks", icon: TrendingUp, description: "Search any ticker and dive into detailed price charts." },
   { label: "Crypto", href: "/crypto", icon: Bitcoin, description: "Track Bitcoin, Ethereum, and the top digital assets." },
   { label: "Commodities", href: "/commodities", icon: Fuel, description: "Follow gold, oil, and other key raw materials." },
-  { label: "Research", href: "/research", icon: LineChart, description: "Deep-dive tools for fundamental and technical analysis." },
+  { label: "Trackers", href: "/trackers", icon: UserSearch, description: "Follow hedge funds, famous investors, and company insider activity." },
   { label: "Learning", href: "/learning", icon: GraduationCap, description: "Build your financial literacy with guided resources." },
   { label: "Tools", href: "/tools", icon: Calculator, description: "Calculators and utilities for smarter money decisions." },
 ];
@@ -112,6 +127,7 @@ interface TickerItem {
   price: number | null;
   change: number | null;
   percentChange: number | null;
+  stale: boolean;
 }
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -292,13 +308,31 @@ function FeaturesSection() {
 // Live data teaser
 // ---------------------------------------------------------------------
 
-function TeaserCard({ name, price, percentChange }: { name: string; price: number | null; percentChange: number | null }) {
+function TeaserCard({
+  name,
+  price,
+  percentChange,
+  stale = false,
+}: {
+  name: string;
+  price: number | null;
+  percentChange: number | null;
+  stale?: boolean;
+}) {
   const hasData = price != null && percentChange != null;
   const isUp = hasData && percentChange > 0;
   const isDown = hasData && percentChange < 0;
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.02] p-6">
+    <div className="relative flex flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.02] p-6">
+      {hasData && stale && (
+        <span
+          className="absolute right-2 top-2 rounded-sm bg-white/10 px-1 py-px text-[8px] font-medium uppercase leading-none tracking-wide text-white/50"
+          title="Showing the last available data — live data is temporarily unavailable"
+        >
+          Stale
+        </span>
+      )}
       <span className="text-sm font-medium text-white/50">{name}</span>
       <span className="text-2xl font-bold text-white">
         {hasData ? currencyFormatter.format(price) : "—"}
@@ -363,9 +397,552 @@ function LiveDataTeaser() {
               name={TEASER_NAMES[label]}
               price={item?.price ?? null}
               percentChange={item?.percentChange ?? null}
+              stale={item?.stale ?? false}
             />
           );
         })}
+      </div>
+    </RevealOnScroll>
+  );
+}
+
+// ---------------------------------------------------------------------
+// Daily Briefing — AI-generated, once-a-day fuller market overview
+// ---------------------------------------------------------------------
+
+// This only needs to catch "a new day has started server-side" rather
+// than track anything live — /api/daily-briefing itself only regenerates
+// once per UTC calendar day (see that route's cache-key comment), so a
+// 30-minute poll is plenty to pick up the new day's briefing shortly
+// after it rolls over without polling pointlessly often.
+const DAILY_BRIEFING_POLL_INTERVAL_MS = 30 * 60_000;
+
+interface DailyBriefingData {
+  overnightNews: string | null;
+  todaysCatalysts: string | null;
+  sectorWatch: string | null;
+  generatedAt: string | null;
+  available: boolean;
+}
+
+function DailyBriefingSection() {
+  const [data, setData] = useState<DailyBriefingData | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const response = await fetch("/api/daily-briefing");
+        const body = await response.json().catch(() => null);
+        if (cancelled) return;
+
+        if (!response.ok || !body) {
+          setError(true);
+          return;
+        }
+        setError(false);
+        setData(body);
+      } catch {
+        if (!cancelled) setError(true);
+      }
+    }
+
+    load();
+    const id = setInterval(load, DAILY_BRIEFING_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  const isReady = data?.available && data.overnightNews && data.todaysCatalysts && data.sectorWatch;
+
+  return (
+    <RevealOnScroll className="flex w-full flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <Sunrise size={20} className="text-amber-400" />
+        <h2 className="text-2xl font-bold text-white">Today&apos;s Market Briefing</h2>
+      </div>
+
+      <div className="rounded-lg border border-white/10 bg-white/[0.02] p-6">
+        {isReady ? (
+          <div className="flex flex-col gap-5">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+              <div className="flex flex-col gap-1.5">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-white/50">
+                  Overnight News
+                </h3>
+                <p className="text-sm leading-relaxed text-white/80">{data.overnightNews}</p>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-white/50">
+                  Today&apos;s Catalysts
+                </h3>
+                <p className="text-sm leading-relaxed text-white/80">{data.todaysCatalysts}</p>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-white/50">
+                  Sector Watch
+                </h3>
+                <p className="text-sm leading-relaxed text-white/80">{data.sectorWatch}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-white/10 pt-3 text-xs text-white/40">
+              <span>
+                Last updated {data.generatedAt ? formatRelativeTime(data.generatedAt) : "recently"}
+              </span>
+              <span>AI-generated analysis based on available market data — not financial advice.</span>
+            </div>
+          </div>
+        ) : error || data?.available === false ? (
+          <p className="text-sm text-white/50">
+            Today&apos;s briefing is temporarily unavailable — check back soon.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-3" aria-hidden="true">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex flex-col gap-2">
+                <div className="h-3 w-24 animate-pulse rounded bg-white/10" />
+                <div className="h-4 w-full animate-pulse rounded bg-white/10" />
+                <div className="h-4 w-4/5 animate-pulse rounded bg-white/10" />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </RevealOnScroll>
+  );
+}
+
+// ---------------------------------------------------------------------
+// Market Pulse — AI-generated "why is the market moving" explanation
+// ---------------------------------------------------------------------
+
+const MARKET_PULSE_POLL_INTERVAL_MS = 5 * 60_000;
+
+interface MarketPulseData {
+  explanation: string | null;
+  generatedAt: string | null;
+  available: boolean;
+}
+
+function formatRelativeTime(iso: string): string {
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+  if (minutes < 1) return "just now";
+  if (minutes === 1) return "1 minute ago";
+  if (minutes < 60) return `${minutes} minutes ago`;
+  const hours = Math.round(minutes / 60);
+  return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+}
+
+function MarketPulseSection() {
+  const [data, setData] = useState<MarketPulseData | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const response = await fetch("/api/market-pulse");
+        const body = await response.json().catch(() => null);
+        if (cancelled) return;
+
+        if (!response.ok || !body) {
+          setError(true);
+          return;
+        }
+        setError(false);
+        setData(body);
+      } catch {
+        if (!cancelled) setError(true);
+      }
+    }
+
+    load();
+    const id = setInterval(load, MARKET_PULSE_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  return (
+    <RevealOnScroll className="flex w-full flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <Sparkles size={20} className="text-indigo-400" />
+        <h2 className="text-2xl font-bold text-white">Why is the market moving?</h2>
+      </div>
+
+      <div className="rounded-lg border border-white/10 bg-white/[0.02] p-6">
+        {data?.available && data.explanation ? (
+          <div className="flex flex-col gap-4">
+            <p className="text-base leading-relaxed text-white/80">{data.explanation}</p>
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-white/40">
+              <span>
+                Last updated {data.generatedAt ? formatRelativeTime(data.generatedAt) : "recently"}
+              </span>
+              <span>AI-generated analysis based on available market data — not financial advice.</span>
+            </div>
+          </div>
+        ) : error || data?.available === false ? (
+          <p className="text-sm text-white/50">
+            Market Pulse is temporarily unavailable — check back soon.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2" aria-hidden="true">
+            <div className="h-4 w-full animate-pulse rounded bg-white/10" />
+            <div className="h-4 w-5/6 animate-pulse rounded bg-white/10" />
+            <div className="h-4 w-2/3 animate-pulse rounded bg-white/10" />
+          </div>
+        )}
+      </div>
+    </RevealOnScroll>
+  );
+}
+
+// ---------------------------------------------------------------------
+// SPY Drivers — pure-calculation contribution breakdown (no AI)
+// ---------------------------------------------------------------------
+
+// Quote-freshness-bound, same as the API route's own cache — no reason
+// to poll more often than the underlying numbers can actually change.
+const SPY_DRIVERS_POLL_INTERVAL_MS = 60_000;
+
+interface DriverEntry {
+  symbol: string;
+  name: string;
+  percentChange: number | null;
+  weight: number;
+  contribution: number | null;
+}
+
+interface SpyDriversData {
+  spyPercentChange: number | null;
+  drivers: DriverEntry[];
+  restOfIndexContribution: number | null;
+  weightsAsOf: string;
+  generatedAt: string;
+}
+
+interface DriverRow {
+  key: string;
+  label: string;
+  sublabel?: string;
+  value: number | null;
+  emphasis?: "total" | "residual";
+}
+
+function DriverBar({ row, maxAbs }: { row: DriverRow; maxAbs: number }) {
+  const hasValue = row.value !== null;
+  const isUp = hasValue && row.value! > 0;
+  const isDown = hasValue && row.value! < 0;
+  const widthPercent = hasValue ? Math.min(50, (Math.abs(row.value!) / maxAbs) * 50) : 0;
+
+  return (
+    <div
+      className={`grid grid-cols-[minmax(0,110px)_1fr_72px] items-center gap-3 rounded px-2 py-1.5 ${
+        row.emphasis === "total" ? "bg-white/[0.04]" : ""
+      }`}
+    >
+      <div className="min-w-0 truncate">
+        <span className={`text-xs font-medium ${row.emphasis ? "text-white/90" : "text-white/70"}`}>
+          {row.label}
+        </span>
+        {row.sublabel && <span className="ml-1 text-[10px] text-white/40">{row.sublabel}</span>}
+      </div>
+
+      <div className="relative h-4 w-full">
+        <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-white/15" />
+        {hasValue && (
+          <div
+            className={`absolute inset-y-0 rounded-sm ${isUp ? "bg-green-500" : isDown ? "bg-red-500" : "bg-white/20"} ${
+              row.value! >= 0 ? "left-1/2" : "right-1/2"
+            }`}
+            style={{ width: `${widthPercent}%` }}
+          />
+        )}
+      </div>
+
+      <span
+        className={`text-right text-xs font-semibold tabular-nums ${
+          isUp ? "text-green-500" : isDown ? "text-red-500" : "text-white/40"
+        }`}
+      >
+        {hasValue ? `${row.value! >= 0 ? "+" : ""}${row.value!.toFixed(2)}pp` : "—"}
+      </span>
+    </div>
+  );
+}
+
+function SpyDriversSection() {
+  const [data, setData] = useState<SpyDriversData | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const response = await fetch("/api/spy-drivers");
+        const body = await response.json().catch(() => null);
+        if (cancelled) return;
+
+        if (!response.ok || !body) {
+          setError(true);
+          return;
+        }
+        setError(false);
+        setData(body);
+      } catch {
+        if (!cancelled) setError(true);
+      }
+    }
+
+    load();
+    const id = setInterval(load, SPY_DRIVERS_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  const rows: DriverRow[] | null = data
+    ? [
+        {
+          key: "total",
+          label: "SPY (Total)",
+          value: data.spyPercentChange,
+          emphasis: "total",
+        },
+        ...data.drivers.map((driver) => ({
+          key: driver.symbol,
+          label: driver.symbol,
+          sublabel: driver.name,
+          value: driver.contribution,
+        })),
+        {
+          key: "rest",
+          label: "Rest of S&P 500",
+          sublabel: "~493 other stocks",
+          value: data.restOfIndexContribution,
+          emphasis: "residual" as const,
+        },
+      ]
+    : null;
+
+  const maxAbs = rows
+    ? Math.max(
+        0.01,
+        ...rows.map((row) => (row.value !== null ? Math.abs(row.value) : 0))
+      )
+    : 0.01;
+
+  return (
+    <RevealOnScroll className="flex w-full flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <BarChart3 size={20} className="text-sky-400" />
+        <h2 className="text-2xl font-bold text-white">What&apos;s Driving SPY Today</h2>
+      </div>
+
+      <div className="rounded-lg border border-white/10 bg-white/[0.02] p-6">
+        {rows ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-0.5">
+              {rows.map((row) => (
+                <DriverBar key={row.key} row={row} maxAbs={maxAbs} />
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-white/10 pt-3 text-xs text-white/40">
+              <span>
+                Contribution ≈ each stock&apos;s % change × its approximate index
+                weight ({data!.weightsAsOf}) — calculated directly from live prices, no AI involved.
+              </span>
+              <span>For informational purposes only — not investment advice.</span>
+            </div>
+          </div>
+        ) : error ? (
+          <p className="text-sm text-white/50">
+            SPY driver data is temporarily unavailable — check back soon.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2" aria-hidden="true">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-4 w-full animate-pulse rounded bg-white/10" />
+            ))}
+          </div>
+        )}
+      </div>
+    </RevealOnScroll>
+  );
+}
+
+// ---------------------------------------------------------------------
+// Sector Rotation Heatmap — sector ETF performance as a capital-flow proxy
+// ---------------------------------------------------------------------
+
+// Matches the API route's own cache TTL as a ceiling — no reason to poll
+// more often than the underlying numbers can actually change.
+const SECTOR_HEATMAP_POLL_INTERVAL_MS = 5 * 60_000;
+
+type SectorTimeframe = "oneDay" | "oneWeek" | "oneMonth";
+
+const TIMEFRAME_OPTIONS: Array<{ key: SectorTimeframe; label: string }> = [
+  { key: "oneDay", label: "1D" },
+  { key: "oneWeek", label: "1W" },
+  { key: "oneMonth", label: "1M" },
+];
+
+interface SectorPerformance {
+  symbol: string;
+  name: string;
+  oneDay: number | null;
+  oneWeek: number | null;
+  oneMonth: number | null;
+}
+
+interface SectorHeatmapData {
+  sectors: SectorPerformance[];
+  interpretation: string | null;
+  generatedAt: string;
+}
+
+// Green/red base (matching this app's established up/down convention
+// everywhere else) with alpha scaled to the move's magnitude relative to
+// the biggest mover currently on screen — the classic heatmap read:
+// pale tint for a small move, a strong saturated fill for the day's
+// biggest mover, direction from hue.
+function heatCellStyle(value: number | null, maxAbs: number): CSSProperties {
+  if (value === null) return { backgroundColor: "rgba(255,255,255,0.04)" };
+  const intensity = maxAbs > 0 ? Math.min(1, Math.abs(value) / maxAbs) : 0;
+  const alpha = 0.18 + intensity * 0.62;
+  const [r, g, b] = value >= 0 ? [34, 197, 94] : [239, 68, 68];
+  return { backgroundColor: `rgba(${r}, ${g}, ${b}, ${alpha})` };
+}
+
+function SectorHeatmapSection() {
+  const [data, setData] = useState<SectorHeatmapData | null>(null);
+  const [error, setError] = useState(false);
+  const [timeframe, setTimeframe] = useState<SectorTimeframe>("oneDay");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const response = await fetch("/api/sector-heatmap");
+        const body = await response.json().catch(() => null);
+        if (cancelled) return;
+
+        if (!response.ok || !body) {
+          setError(true);
+          return;
+        }
+        setError(false);
+        setData(body);
+      } catch {
+        if (!cancelled) setError(true);
+      }
+    }
+
+    load();
+    const id = setInterval(load, SECTOR_HEATMAP_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  const sectors = data?.sectors ?? null;
+  const maxAbs = sectors
+    ? Math.max(
+        0.01,
+        ...sectors.map((s) => (s[timeframe] !== null ? Math.abs(s[timeframe]!) : 0))
+      )
+    : 0.01;
+
+  // Ranked biggest-mover-first within the grid, same reasoning as the
+  // SPY drivers bars above — the point of a heatmap is spotting the
+  // extremes quickly, not scanning alphabetically.
+  const ranked = sectors
+    ? [...sectors].sort(
+        (a, b) => Math.abs(b[timeframe] ?? 0) - Math.abs(a[timeframe] ?? 0)
+      )
+    : null;
+
+  return (
+    <RevealOnScroll className="flex w-full flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Grid3x3 size={20} className="text-violet-400" />
+          <h2 className="text-2xl font-bold text-white">Sector Rotation</h2>
+        </div>
+        <div className="flex gap-1">
+          {TIMEFRAME_OPTIONS.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => setTimeframe(option.key)}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                timeframe === option.key
+                  ? "bg-white/15 text-white"
+                  : "text-white/50 hover:text-white/80"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-white/10 bg-white/[0.02] p-6">
+        {ranked ? (
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              {ranked.map((sector) => {
+                const value = sector[timeframe];
+                return (
+                  <div
+                    key={sector.symbol}
+                    className="flex flex-col gap-1 rounded-md p-3 transition-all duration-300"
+                    style={heatCellStyle(value, maxAbs)}
+                  >
+                    <div className="flex items-baseline justify-between gap-1">
+                      <span className="text-xs font-semibold text-white">{sector.symbol}</span>
+                      <span className="text-sm font-bold tabular-nums text-white">
+                        {value !== null ? `${value >= 0 ? "+" : ""}${value.toFixed(2)}%` : "—"}
+                      </span>
+                    </div>
+                    <span className="truncate text-[11px] text-white/70">{sector.name}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {data?.interpretation && (
+              <p className="rounded-md bg-white/[0.03] px-3 py-2 text-sm italic text-white/70">
+                {data.interpretation}
+              </p>
+            )}
+
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-white/10 pt-3 text-xs text-white/40">
+              <span>Sector ETF performance as a capital-flow proxy — not a direct measure of fund flows.</span>
+              <span>AI-generated interpretation based on today&apos;s data — not financial advice.</span>
+            </div>
+          </div>
+        ) : error ? (
+          <p className="text-sm text-white/50">
+            Sector data is temporarily unavailable — check back soon.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4" aria-hidden="true">
+            {Array.from({ length: 11 }).map((_, i) => (
+              <div key={i} className="h-16 w-full animate-pulse rounded-md bg-white/10" />
+            ))}
+          </div>
+        )}
       </div>
     </RevealOnScroll>
   );
@@ -388,11 +965,144 @@ function Footer() {
 // Page
 // ---------------------------------------------------------------------
 
+// Public teaser, personalized once signed in — the watchlist fetch here is
+// the ONLY thing gated on auth status; every other section below renders
+// the same real data for every visitor, no login wall anywhere on the page.
+// Fetched once here and passed down (mirroring app/earnings/page.tsx's own
+// "fetch once, pass down" watchlistSymbols pattern) rather than each
+// section independently re-fetching /api/watchlist.
+function useWatchlistSymbols(): Set<string> {
+  const { status } = useSession();
+  const [symbols, setSymbols] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      if (status !== "authenticated") {
+        if (!cancelled) setSymbols(new Set());
+        return;
+      }
+      try {
+        const response = await fetch("/api/watchlist");
+        const body = await response.json().catch(() => null);
+        if (cancelled) return;
+        const items: Array<{ symbol: string; assetType?: string }> = Array.isArray(body?.items) ? body.items : [];
+        setSymbols(new Set(items.filter((item) => (item.assetType ?? "stock") === "stock").map((item) => item.symbol)));
+      } catch {
+        if (!cancelled) setSymbols(new Set());
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [status]);
+
+  return symbols;
+}
+
+interface DigestConfigState {
+  sectionOrder: SectionKey[] | null;
+  sectorCardsSectors: CatalogSector[] | null;
+}
+
+// Signed-out visitors always get null/null (the full default layout) — this
+// hook only ever fetches for a signed-in user, mirroring
+// useWatchlistSymbols's own fetch-once-on-auth pattern above.
+function useDashboardConfig(): [DigestConfigState, (next: DigestConfigState) => void] {
+  const { status } = useSession();
+  const [config, setConfig] = useState<DigestConfigState>({ sectionOrder: null, sectorCardsSectors: null });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      if (status !== "authenticated") {
+        if (!cancelled) setConfig({ sectionOrder: null, sectorCardsSectors: null });
+        return;
+      }
+      try {
+        const response = await fetch("/api/dashboard-config");
+        const body = await response.json().catch(() => null);
+        if (cancelled) return;
+        const sectionOrder: SectionKey[] | null = Array.isArray(body?.sectionOrder)
+          ? body.sectionOrder.filter(isSectionKey)
+          : null;
+        setConfig({
+          sectionOrder: sectionOrder && sectionOrder.length > 0 ? sectionOrder : null,
+          sectorCardsSectors: Array.isArray(body?.sectorCardsSectors) ? body.sectorCardsSectors : null,
+        });
+      } catch {
+        if (!cancelled) setConfig({ sectionOrder: null, sectorCardsSectors: null });
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [status]);
+
+  return [config, setConfig];
+}
+
+function renderDigestSection(
+  key: SectionKey,
+  watchlistSymbols: Set<string>,
+  selectedSectors: CatalogSector[] | null
+) {
+  switch (key) {
+    case "watchlist":
+      return <WatchlistDigestSection symbols={watchlistSymbols} />;
+    case "sectorCards":
+      return <SectorCompanyCards watchlistSymbols={watchlistSymbols} selectedSectors={selectedSectors ?? undefined} />;
+    case "news":
+      return <NewsDigestSection />;
+    case "earnings":
+      return <EarningsDigestSection watchlistSymbols={watchlistSymbols} />;
+    case "movers":
+      return <MoversDigestSection watchlistSymbols={watchlistSymbols} />;
+    case "insiderActivity":
+      return <InsiderActivityDigestSection />;
+  }
+}
+
 export default function HomePage() {
+  const { status } = useSession();
+  const watchlistSymbols = useWatchlistSymbols();
+  const [digestConfig, setDigestConfig] = useDashboardConfig();
+
+  const isSignedIn = status === "authenticated";
+  const effectiveOrder = isSignedIn && digestConfig.sectionOrder ? digestConfig.sectionOrder : [...DEFAULT_SECTION_ORDER];
+  const effectiveSelectedSectors = isSignedIn ? digestConfig.sectorCardsSectors : null;
+
   return (
     <main className="flex flex-1 flex-col items-center gap-20 bg-neutral-950 pb-16">
       <Hero />
       <div className="flex w-full max-w-6xl flex-col gap-20 px-8">
+        {isSignedIn && (
+          <div className="flex justify-end">
+            <DashboardConfigButton
+              currentSectionOrder={digestConfig.sectionOrder}
+              currentSelectedSectors={digestConfig.sectorCardsSectors}
+              onSaved={(result: DashboardConfigResult) =>
+                setDigestConfig({ sectionOrder: result.sectionOrder, sectorCardsSectors: result.sectorCardsSectors })
+              }
+              onReset={() => setDigestConfig({ sectionOrder: null, sectorCardsSectors: null })}
+            />
+          </div>
+        )}
+
+        {effectiveOrder.map((key) => (
+          <div key={key}>{renderDigestSection(key, watchlistSymbols, effectiveSelectedSectors)}</div>
+        ))}
+
+        <DailyBriefingSection />
+        <MarketPulseSection />
+        <SpyDriversSection />
+        <SectorHeatmapSection />
         <FeaturesSection />
         <LiveDataTeaser />
       </div>
