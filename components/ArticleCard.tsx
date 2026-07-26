@@ -28,16 +28,61 @@ export function formatRelativeTime(dateStr: string | null): string {
   });
 }
 
+// One accent per category, reusing each section's own established color
+// identity (blue = stocks/markets, purple = crypto, amber = commodities)
+// so the tag reads consistently with the rest of the app rather than
+// introducing a new color language just for this eyebrow. Earnings/Economy
+// are new — the general News feed is the only place they appear (see
+// classifyCategory in lib/newsApi.ts) — given fresh, distinct colors of
+// their own (green, cyan) rather than reusing one of the four above.
+export const CATEGORY_STYLES: Record<string, string> = {
+  Markets: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+  Stocks: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+  Crypto: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
+  Commodities: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  Earnings: "bg-green-500/10 text-green-600 dark:text-green-400",
+  Economy: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
+};
+
+// Same per-category identity as CATEGORY_STYLES above, but solid-filled —
+// used for the News page's own filter tabs (app/news/page.tsx) so an
+// active tab's color matches its badge color throughout the list below it.
+export const CATEGORY_TAB_ACTIVE_STYLES: Record<string, string> = {
+  Markets: "bg-blue-500 text-white",
+  Stocks: "bg-blue-500 text-white",
+  Crypto: "bg-purple-500 text-white",
+  Commodities: "bg-amber-500 text-white",
+  Earnings: "bg-green-500 text-white",
+  Economy: "bg-cyan-500 text-white",
+};
+
+// Fixed display order for the filter tabs — broad-to-narrow, with the
+// generic "Markets" catch-all last since it's the least specific bucket.
+export const NEWS_CATEGORY_ORDER = ["Stocks", "Crypto", "Commodities", "Earnings", "Economy", "Markets"] as const;
+
+function CategoryTag({ category }: { category?: string }) {
+  if (!category) return null;
+  const style = CATEGORY_STYLES[category] ?? "bg-foreground/10 text-foreground/60";
+  return (
+    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${style}`}>
+      {category}
+    </span>
+  );
+}
+
+// A dense, text-forward row (MarketWatch's own list style) rather than a
+// card with a large hero image — a small fixed-size thumbnail sits beside
+// the text instead of dominating it, so a page of these reads as a
+// scannable headline list, not a photo gallery.
 export function ArticleCardSkeleton() {
   return (
-    <div className="flex flex-col overflow-hidden rounded-md border border-black/10 dark:border-white/15">
-      <div className="h-40 w-full animate-pulse bg-foreground/10" />
-      <div className="flex flex-col gap-2 p-4">
-        <div className="h-3 w-20 animate-pulse rounded bg-foreground/10" />
+    <div className="flex items-start gap-3 border-b border-black/5 py-3 dark:border-white/10">
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="h-3 w-16 animate-pulse rounded-full bg-foreground/10" />
         <div className="h-4 w-full animate-pulse rounded bg-foreground/10" />
-        <div className="h-4 w-3/4 animate-pulse rounded bg-foreground/10" />
-        <div className="h-3 w-16 animate-pulse rounded bg-foreground/10" />
+        <div className="h-3 w-2/3 animate-pulse rounded bg-foreground/10" />
       </div>
+      <div className="h-16 w-20 shrink-0 animate-pulse rounded bg-foreground/10" />
     </div>
   );
 }
@@ -48,33 +93,38 @@ export function ArticleCard({ article }: { article: Article }) {
       href={article.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="flex flex-col overflow-hidden rounded-md border border-black/10 text-sm transition-colors hover:border-black/30 dark:border-white/15 dark:hover:border-white/30"
+      className="group flex items-start gap-3 border-b border-black/5 py-3 text-sm transition-colors duration-150 ease-out hover:bg-foreground/[0.03] dark:border-white/10"
     >
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <CategoryTag category={article.category} />
+          <span className="truncate text-xs font-medium text-foreground/50">{article.source}</span>
+          <span className="text-xs text-foreground/30">·</span>
+          <span className="whitespace-nowrap text-xs text-foreground/50">
+            {formatRelativeTime(article.publishedAt)}
+          </span>
+        </div>
+        <h2 className="font-semibold leading-snug text-foreground group-hover:underline">
+          {article.title}
+        </h2>
+        {article.description && (
+          <p className="line-clamp-1 text-foreground/60">{article.description}</p>
+        )}
+      </div>
+
       {article.imageUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={article.imageUrl}
           alt=""
-          className="h-40 w-full object-cover"
+          width={96}
+          height={72}
+          className="h-[72px] w-24 shrink-0 rounded object-cover"
           onError={(e) => {
             e.currentTarget.style.display = "none";
           }}
         />
       )}
-      <div className="flex flex-1 flex-col gap-2 p-4">
-        <span className="text-xs font-medium text-foreground/60">
-          {article.source}
-        </span>
-        <h2 className="font-semibold text-foreground">{article.title}</h2>
-        {article.description && (
-          <p className="line-clamp-3 text-foreground/60">
-            {article.description}
-          </p>
-        )}
-        <span className="mt-auto pt-2 text-xs text-foreground/60">
-          {formatRelativeTime(article.publishedAt)}
-        </span>
-      </div>
     </a>
   );
 }

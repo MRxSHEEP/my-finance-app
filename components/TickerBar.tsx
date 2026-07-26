@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 
 // Matches the client-visible cadence in app/api/ticker/route.ts. The
 // server-side cache there independently throttles the Polygon-backed
@@ -8,6 +9,12 @@ import { useEffect, useRef, useState } from "react";
 // rate-budget math — so polling here just checks in on whatever the
 // server currently has, rather than driving the upstream call rate.
 const POLL_INTERVAL_MS = 20_000;
+
+// Exported so app/layout.tsx can size/offset its scroll container around
+// this exact value — kept as one shared constant rather than the same
+// magic number hardcoded in two files, since a mismatch would either gap
+// or clip the content directly below this fixed bar.
+export const TICKER_BAR_HEIGHT_PX = 30;
 
 // These map to the --animate-ticker-flash-* tokens declared in the
 // @theme block in globals.css, which is what makes their @keyframes
@@ -38,6 +45,33 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
+
+// Maps each of the fixed symbols in app/api/ticker/route.ts's ASSET_DEFS
+// to wherever clicking it should land — kept local to this file since
+// the mapping only makes sense for this exact, fixed 13-item list, not
+// as a general symbol-routing utility. Gold/silver/oil land on
+// /commodities and scroll to their card there (see the `highlight`
+// param read on that page); Bitcoin lands on /crypto with its CoinGecko
+// id/symbol/name passed directly (skips an extra search round-trip,
+// since there's only one crypto item here and its id is already known);
+// Dow/Nasdaq (their DIA/QQQ ETF proxies) and the Mag 7 names all reuse
+// the stocks page's existing `?ticker=` deep link.
+function getTickerHref(symbol: string): string {
+  switch (symbol) {
+    case "C:XAUUSD":
+      return `/commodities?highlight=${encodeURIComponent("C:XAUUSD")}`;
+    case "C:XAGUSD":
+      return `/commodities?highlight=${encodeURIComponent("C:XAGUSD")}`;
+    case "USO":
+      return "/commodities?highlight=USO";
+    case "BINANCE:BTCUSDT":
+      return "/crypto?coin=bitcoin&symbol=BTC&name=Bitcoin";
+    default:
+      // DIA/QQQ (Dow/Nasdaq proxies) and the Mag 7 symbols are already
+      // their own ticker — no special-casing needed.
+      return `/stocks?ticker=${encodeURIComponent(symbol)}`;
+  }
+}
 
 export default function TickerBar() {
   const [items, setItems] = useState<DisplayItem[]>([]);
@@ -84,7 +118,15 @@ export default function TickerBar() {
   }, []);
 
   return (
-    <div className="sticky top-0 z-40 h-[30px] shrink-0 overflow-hidden border-b border-white/10 bg-neutral-950">
+    // Fixed (not sticky/in-flow) so it's fully removed from the page's
+    // document flow — app/layout.tsx's scroll container below it is sized
+    // and offset around TICKER_BAR_HEIGHT_PX above, so the page's own
+    // scrollbar begins right under this bar instead of running the full
+    // viewport height behind/alongside it.
+    <div
+      className="fixed inset-x-0 top-0 z-40 overflow-hidden border-b border-white/10 bg-neutral-950"
+      style={{ height: TICKER_BAR_HEIGHT_PX }}
+    >
       <div className="group h-full overflow-hidden">
         <div className="flex h-full w-max animate-ticker-scroll items-center group-hover:[animation-play-state:paused]">
           {items.length > 0 &&
@@ -110,8 +152,13 @@ function TickerPill({ item }: { item: DisplayItem }) {
     flashDirection === "up" ? FLASH_UP_CLASS : flashDirection === "down" ? FLASH_DOWN_CLASS : "";
 
   return (
-    <div className={`flex h-full shrink-0 items-center gap-1.5 whitespace-nowrap px-4 ${flashClass}`}>
-      <span className="text-[11px] font-normal text-white/45">{label}</span>
+    <Link
+      href={getTickerHref(item.symbol)}
+      className={`group/pill flex h-full shrink-0 items-center gap-1.5 whitespace-nowrap px-4 transition-colors hover:bg-white/5 ${flashClass}`}
+    >
+      <span className="text-[11px] font-normal text-white/45 group-hover/pill:text-white/75 group-hover/pill:underline">
+        {label}
+      </span>
       <span className="text-[11px] font-semibold text-white">
         {hasData ? currencyFormatter.format(price) : "—"}
       </span>
@@ -125,6 +172,6 @@ function TickerPill({ item }: { item: DisplayItem }) {
           {percentChange.toFixed(1)}%
         </span>
       )}
-    </div>
+    </Link>
   );
 }

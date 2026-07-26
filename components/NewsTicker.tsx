@@ -10,6 +10,7 @@ export type Article = {
   publishedAt: string | null;
   url: string;
   imageUrl: string | null;
+  category?: "Markets" | "Stocks" | "Crypto" | "Commodities" | "Earnings" | "Economy";
 };
 
 const ROTATE_INTERVAL_MS = 5000;
@@ -20,6 +21,7 @@ export default function NewsTicker({ articles }: { articles: Article[] }) {
   const [index, setIndex] = useState(0);
   const [fading, setFading] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [hovering, setHovering] = useState(false);
   const lastFirstUrlRef = useRef<string | null>(null);
   const fadeTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const resumeTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -52,14 +54,14 @@ export default function NewsTicker({ articles }: { articles: Article[] }) {
   }
 
   useEffect(() => {
-    if (paused || articles.length <= 1) return;
+    if (paused || hovering || articles.length <= 1) return;
 
     const intervalId = setInterval(() => {
       transitionTo((i) => (i + 1) % articles.length);
     }, ROTATE_INTERVAL_MS);
 
     return () => clearInterval(intervalId);
-  }, [articles.length, paused]);
+  }, [articles.length, paused, hovering]);
 
   function handleManualNav(nextIndex: number) {
     transitionTo(() => ((nextIndex % articles.length) + articles.length) % articles.length);
@@ -75,7 +77,11 @@ export default function NewsTicker({ articles }: { articles: Article[] }) {
   const current = articles[safeIndex];
 
   return (
-    <div className="w-full max-w-5xl rounded-md border border-black/10 bg-foreground/5 p-4 dark:border-white/15">
+    <div
+      className="w-full max-w-5xl rounded-md border border-black/10 bg-foreground/5 p-4 dark:border-white/15"
+      onMouseEnter={() => setHovering(true)}
+      onMouseLeave={() => setHovering(false)}
+    >
       <div className="flex items-center gap-2">
         <span className="flex shrink-0 items-center gap-1 rounded bg-red-500 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-white">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
@@ -87,7 +93,7 @@ export default function NewsTicker({ articles }: { articles: Article[] }) {
             type="button"
             onClick={() => handleManualNav(safeIndex - 1)}
             aria-label="Previous headline"
-            className="shrink-0 rounded-md p-1 text-foreground/60 hover:bg-foreground/10 hover:text-foreground"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-foreground/60 hover:bg-foreground/10 hover:text-foreground"
           >
             <ChevronLeft size={16} />
           </button>
@@ -114,7 +120,7 @@ export default function NewsTicker({ articles }: { articles: Article[] }) {
             type="button"
             onClick={() => handleManualNav(safeIndex + 1)}
             aria-label="Next headline"
-            className="shrink-0 rounded-md p-1 text-foreground/60 hover:bg-foreground/10 hover:text-foreground"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-foreground/60 hover:bg-foreground/10 hover:text-foreground"
           >
             <ChevronRight size={16} />
           </button>

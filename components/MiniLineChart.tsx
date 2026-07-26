@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { ColorType, createChart, LineSeries, type UTCTimestamp } from "lightweight-charts";
+import { AreaSeries, ColorType, createChart, type UTCTimestamp } from "lightweight-charts";
 
 interface MiniLineChartProps {
   data: { time: number; value: number }[];
@@ -55,9 +55,14 @@ export default function MiniLineChart({ data, height = 64 }: MiniLineChartProps)
     const isUp = data[data.length - 1].value >= data[0].value;
     const color = isUp ? "#22c55e" : "#ef4444";
 
-    const series = chart.addSeries(LineSeries, {
-      color,
+    // A gradient area fill (not a flat line) reads as "positive/negative
+    // momentum" at a glance, matching the broader color-language pass —
+    // solid near the line, fading to nothing toward the baseline.
+    const series = chart.addSeries(AreaSeries, {
+      lineColor: color,
       lineWidth: 2,
+      topColor: isUp ? "rgba(34,197,94,0.32)" : "rgba(239,68,68,0.32)",
+      bottomColor: isUp ? "rgba(34,197,94,0)" : "rgba(239,68,68,0)",
       crosshairMarkerVisible: false,
       lastValueVisible: false,
       priceLineVisible: false,
