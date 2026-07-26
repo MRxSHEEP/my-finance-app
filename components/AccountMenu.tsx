@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
-import { Star, Wallet, LogOut } from "lucide-react";
+import { Star, Wallet, Award, LogOut } from "lucide-react";
 
 export default function AccountMenu() {
   const { data: session, status } = useSession();
@@ -52,7 +52,7 @@ export default function AccountMenu() {
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex h-8 w-8 items-center justify-center rounded-full bg-foreground/10 text-sm font-semibold text-foreground transition-colors hover:bg-foreground/20"
+        className="flex h-10 w-10 items-center justify-center rounded-full bg-foreground/10 text-sm font-semibold text-foreground transition-colors hover:bg-foreground/20"
         aria-label="Account menu"
         aria-expanded={open}
       >
@@ -60,7 +60,7 @@ export default function AccountMenu() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-2 w-44 overflow-hidden rounded-md border border-black/10 bg-background text-sm shadow-lg dark:border-white/15">
+        <div className="absolute right-0 top-full z-20 mt-2 w-56 overflow-hidden rounded-md border border-black/10 bg-background text-sm shadow-lg dark:border-white/15">
           <Link
             href="/watchlist"
             onClick={() => setOpen(false)}
@@ -73,7 +73,14 @@ export default function AccountMenu() {
             onClick={() => setOpen(false)}
             className="flex items-center gap-2 px-3 py-2 text-foreground/70 hover:bg-foreground/5 hover:text-foreground"
           >
-            <Wallet size={14} /> Portfolio
+            <Wallet size={14} /> Simulated Portfolio
+          </Link>
+          <Link
+            href="/learning/certifications"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2 px-3 py-2 text-foreground/70 hover:bg-foreground/5 hover:text-foreground"
+          >
+            <Award size={14} /> My Certifications
           </Link>
           <button
             type="button"

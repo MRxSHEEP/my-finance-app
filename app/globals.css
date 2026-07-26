@@ -17,7 +17,7 @@
      its generated utility this way; a bare @keyframes here gets tree-shaken
      away as "unused" even though an arbitrary-value animate-[...] utility
      elsewhere references it by name. */
-  --animate-ticker-scroll: ticker-scroll 50s linear infinite;
+  --animate-ticker-scroll: ticker-scroll 100s linear infinite;
   --animate-ticker-flash-up: ticker-flash-up 800ms ease-out;
   --animate-ticker-flash-down: ticker-flash-down 800ms ease-out;
   /* Per-icon duration/delay in the crypto banner are overridden via inline
@@ -49,6 +49,97 @@
      state and the end state). Remounted via a changing `key` on toggle,
      same restart technique used for the ticker's flash pulse. */
   --animate-star-bounce: star-bounce 400ms ease-out;
+  /* Deep Dive bar charts (Earnings/Dividends) — each bar is a custom
+     recharts `shape` (see components/stocks/EarningsCard.tsx) so it can
+     carry its own `animation-delay` per index for a cascading grow-in;
+     `backwards` holds the 0%-state (scaleY(0)) until that per-bar delay
+     elapses, and the animation itself only ever mounts once the card is
+     actually in view (lib/useInViewOnce.ts gates it), not on data-load. */
+  --animate-bar-grow: bar-grow 500ms ease-out backwards;
+  /* Section header backgrounds (Stocks/Crypto/Commodities) — a shared
+     "breathing" pulse for glowing data points (stocks' live-tick dots,
+     crypto's network nodes) so all three don't each need their own
+     near-identical keyframe. Paired with a static `opacity-*` utility on
+     every element that uses it (not just the keyframe's own opacity), so
+     prefers-reduced-motion (which drops the animation via
+     motion-reduce:animate-none) still leaves a sensible mid-value dot
+     rather than snapping to full 100% opacity. */
+  --animate-pulse-glow: pulse-glow 3s ease-in-out infinite;
+  /* Commodities header's topographic contour lines — reuses ticker-
+     scroll's own translateX(0)->(-50%) seamless-loop keyframe (see that
+     token below) at a much slower, barely-perceptible pace befitting a
+     "terrain" pattern rather than a scrolling ticker or chart. */
+  --animate-contour-drift: ticker-scroll 140s linear infinite;
+  /* Crypto header's engraved-coin motif — a slow full-rotation so the
+     rings/etched rays read as a coin slowly turning and catching light,
+     rather than a static engraving. transform-only (rotate), so it's as
+     cheap as the transform/opacity animations above. The two coin
+     instances share this one token and flip direction via the standard
+     `animation-direction: reverse` CSS property (set inline per instance)
+     rather than needing a second, mirrored keyframe. */
+  --animate-coin-rotate: coin-rotate 100s linear infinite;
+  /* Collapsed-sidebar hamburger — a one-shot full turn on click, not a
+     loop. Remounted via a changing `key` per click (same restart
+     technique as star-bounce above) so rapid repeated clicks each get
+     their own clean spin from 0deg rather than fighting an in-flight one. */
+  --animate-hamburger-spin: hamburger-spin 400ms ease-out;
+  /* Collapsed-sidebar flyout menu items — a quick per-item fade+rise,
+     staggered via an inline animation-delay set per index (same
+     cascading technique as bar-grow above). `backwards` holds each item
+     at its 0%-state (invisible, offset) until its own delay elapses,
+     rather than every item flashing into its end state together the
+     instant the parent mounts. */
+  --animate-nav-item-fade-in: nav-item-fade-in 200ms ease-out backwards;
+
+  @keyframes hamburger-spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes nav-item-fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes coin-rotate {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes pulse-glow {
+    0%,
+    100% {
+      opacity: 0.35;
+      transform: scale(0.85);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.15);
+    }
+  }
+
+  @keyframes bar-grow {
+    from {
+      transform: scaleY(0);
+    }
+    to {
+      transform: scaleY(1);
+    }
+  }
 
   @keyframes star-bounce {
     0% {

@@ -1,15 +1,16 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
 
 const inputClassName =
   "w-full rounded-md border border-black/10 bg-transparent px-3 py-2 text-sm outline-none focus:border-black/30 dark:border-white/15 dark:focus:border-white/30";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +27,10 @@ export default function LoginPage() {
         setError("Invalid email or password.");
         return;
       }
-      router.push("/");
+      // Supports a return-to destination (e.g. an invite link followed
+      // while signed out) — defaults to "/" when absent, same as the
+      // previous unconditional redirect.
+      router.push(searchParams.get("callbackUrl") || "/");
       router.refresh();
     } finally {
       setLoading(false);
@@ -89,5 +93,13 @@ export default function LoginPage() {
         </p>
       </form>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }
