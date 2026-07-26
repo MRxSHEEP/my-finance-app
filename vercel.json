@@ -1,0 +1,28 @@
+{
+  "crons": [
+    {
+      "path": "/api/daily-briefing",
+      "schedule": "0 11 * * *"
+    },
+    {
+      "path": "/api/trackers/ingest/insiders",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/trackers/ingest/thirteen-f",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/simulated-portfolio/snapshot",
+      "schedule": "5 0 * * *"
+    },
+    {
+      "path": "/api/model-portfolios/snapshot",
+      "schedule": "10 0 * * *"
+    },
+    {
+      "path": "/api/benchmarking/snapshot",
+      "schedule": "15 0 * * *"
+    }
+  ]
+}
