@@ -19,6 +19,16 @@ model User {
 
   watchlist WatchlistItem[]
   holdings  PortfolioHolding[]
+  learning  LearningProgress[]
+  follows              TrackerFollow[]
+  trackerNotifications TrackerNotification[]
+  simulatedPortfolios  SimulatedPortfolio[]
+  certificates         UserCertificate[]
+  memberships          Membership[]
+  tradeDisclosures     TradeDisclosure[]
+  preclearanceRequests PreclearanceRequest[]
+  complianceFlags      ComplianceFlag[]
+  dashboardConfig      DashboardConfig?
 }
 
 model WatchlistItem {
@@ -26,6 +36,10 @@ model WatchlistItem {
   userId    String
   symbol    String
   name      String?
+  // "stock" (uppercase ticker, e.g. "AAPL") or "crypto" (lowercase
+  // CoinGecko id, e.g. "bitcoin" — the id round-trips into
+  // /api/crypto/detail, unlike the ambiguous ticker symbol).
+  assetType String   @default("stock")
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -41,6 +55,812 @@ model PortfolioHolding {
   costBasis    Float
   purchaseDate DateTime
   createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model LearningProgress {
+  id                String    @id @default(cuid())
+  userId            String
+  topicId           String
+  // Furthest 0-based index reached in the course's combined slide+quiz
+  // sequence — never decremented, so navigating back and forth never
+  // regresses saved progress.
+  highestSlideIndex Int       @default(0)
+  // Count of the course's 3 quizzes the user has finished (answered every
+  // question through to the summary screen), not a pass/fail gate.
+  quizzesCompleted  Int       @default(0)
+  // Per-checkpoint score ledger: [{ quizIndex, correct, total }, ...],
+  // upserted per quizIndex (max-of-existing on retake, same "never
+  // regress" spirit as highestSlideIndex above) — purely additive next to
+  // quizzesCompleted/completedAt, which keep their exact existing meaning
+  // and are unaffected by this field. Certification eligibility
+  // (lib/learning/certification.ts) sums correct/total across this array
+  // rather than storing a separate aggregate, so there's one source of
+  // truth for score data.
+  quizScores        Json      @default("[]")
+  completedAt       DateTime?
+  updatedAt         DateTime  @updatedAt
+  createdAt         DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, topicId])
+}
+
+// A row is the durable, one-time award record — inserted the moment a
+// track first crosses its certification threshold (see
+// lib/learning/certification.ts's checkAndAwardCertificates, called from
+// the progress API right after each quiz/slide save) and never
+// re-evaluated to revoke it later, even if a subsequent quiz retake drops
+// the rolling average. scorePercent/recipientName are snapshotted at
+// award time for the same reason: a later name change or retake should
+// never silently rewrite an already-issued certificate's stated
+// achievement.
+model UserCertificate {
+  id            String   @id @default(cuid())
+  userId        String
+  // Matches a CERTIFICATION_TRACKS[].id from
+  // lib/learning/certificationTracks.ts, validated at the app layer — no
+  // Prisma enum, matching this schema's existing convention (see
+  // WatchlistItem.assetType).
+  trackId       String
+  scorePercent  Int
+  recipientName String
+  awardedAt     DateTime @default(now())
+  // Unguessable public-view key, deliberately distinct from `id` — the
+  // shareable /certificates/[shareId] page is unauthenticated by design,
+  // so this (not the row's own id or userId) is the only thing that needs
+  // to stay unguessable.
+  shareId       String   @unique @default(cuid())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, trackId])
+}
+
+// Postgres-backed "last known good" fallback for withCacheAndFallback's
+// persistent mode (lib/newsCache.ts) — survives restarts/redeploys, unlike
+// the plain in-memory Map every other withCache/withCacheAndFallback
+// consumer uses. Opted into per-call via a `persistent` flag; only the
+// Marketaux news routes use it today — Finnhub-backed per-ticker caches
+// (stock overview, logos) stay in-memory since they're far higher
+// cardinality and don't need cross-restart durability.
+model NewsCache {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  payload   Json
+  fetchedAt DateTime
+}
+
+// --- Trackers (congress / hedge fund / investor / insider ownership) ---
+// Shared reference data, ingested once from public filings and read by
+// every user — no userId here, unlike the per-user models above.
+
+model TrackedEntity {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  // "congress" | "hedge_fund" | "investor" | "insider" — no fixed schema
+  // enum, matching this app's existing convention (see WatchlistItem.assetType).
+  type           String
+  name           String
+  title          String?
+  photoUrl       String?
+  // 13F filers only (hedge_fund/investor) — the CIK used to pull EDGAR filings.
+  secCik         String?
+  // Matches FMP's "office" field, used to key congress ingestion onto this entity.
+  congressOffice String?
+  createdAt      DateTime @default(now())
+
+  transactions TrackerTransaction[]
+  holdings     TrackerHolding[]
+  follows      TrackerFollow[]
+  performanceSnapshots TrackerPerformanceSnapshot[]
+
+  @@index([type])
+}
+
+model TrackerPerformanceSnapshot {
+  // Quarter-end total portfolio value, from a real 13F filing's full
+  // information table (sum across every position, not just the top-N
+  // this app stores at the holding level) — the only data source in this
+  // feature with enough historical depth to chain a real multi-point
+  // return series (see lib/trackers/thirteenF.ts's backfill). Congress
+  // and insider trackers have no equivalent — their return figure is
+  // computed live from accumulated buy/sell transactions instead, or
+  // shown as "insufficient data yet."
+  id              String   @id @default(cuid())
+  trackedEntityId String
+  asOfDate        DateTime
+  totalValue      Float
+  createdAt       DateTime @default(now())
+
+  trackedEntity TrackedEntity @relation(fields: [trackedEntityId], references: [id], onDelete: Cascade)
+
+  @@unique([trackedEntityId, asOfDate])
+}
+
+model TrackerTransaction {
+  id              String    @id @default(cuid())
+  trackedEntityId String
+  // Null when a 13F issuer name couldn't be resolved to a ticker — never guessed.
+  ticker          String?
+  issuerName      String?
+  // Insider Form 4 only — the reporting person's name/title (e.g. "Tim
+  // Cook", "Director, CEO"), distinct from issuerName (the company).
+  reportingPersonName String?
+  reportingPersonRole String?
+  // "buy" | "sell" | "option_exercise" | "gift" | "award" | "tax_withholding"
+  // | "partial_sell" | "exchange" | "other" — see CATALOG note above.
+  transactionType String
+  reportedDate    DateTime?
+  // Actual trade date, only when distinguishable from reportedDate.
+  tradeDate       DateTime?
+  disclosureDate  DateTime?
+  // Congressional disclosures report a value RANGE, never an exact figure.
+  amountLow       Float?
+  amountHigh      Float?
+  // Known precisely: Form 4 (shares * price) or a 13F's own reported value.
+  exactValue      Float?
+  shares          Float?
+  pricePerShare   Float?
+  // True whenever the value shown is a range/estimate, not a precise figure.
+  isEstimate      Boolean   @default(false)
+  // "congress_senate" | "congress_house" (FMP-sourced, free tier) |
+  // "congress_house_pdf" | "congress_senate_pdf" (free House Clerk/Senate eFD
+  // pipeline — see lib/trackers/congressPdfGate.ts, disabled by default) |
+  // "insider_form4" | "13f". The two _pdf variants are deliberately distinct
+  // from the FMP-sourced ones so the two congress data sources never
+  // dedupe/collide against each other confusingly.
+  sourceType      String
+  sourceUrl       String?
+  // App-computed from the source's own natural key (lib/trackers/dedupe.ts)
+  // — matches this app's existing string-concat dedupe convention rather
+  // than a composite unique over nullable columns.
+  dedupeKey       String    @unique
+  createdAt       DateTime  @default(now())
+
+  trackedEntity TrackedEntity @relation(fields: [trackedEntityId], references: [id], onDelete: Cascade)
+
+  @@index([ticker])
+  @@index([trackedEntityId])
+}
+
+model TrackerHolding {
+  // Current computed position snapshot per (entity, ticker) — recomputed
+  // by ingestion from TrackerTransaction rows. 13F: shares straight from
+  // the latest filing. congress/insider: best-effort running total from
+  // known buys/sells, only ever as complete as the accumulated feed.
+  id              String   @id @default(cuid())
+  trackedEntityId String
+  ticker          String?
+  issuerName      String?
+  shares          Float?
+  estimatedValue  Float?
+  asOfDate        DateTime
+  isEstimate      Boolean  @default(false)
+  updatedAt       DateTime @updatedAt
+
+  trackedEntity TrackedEntity @relation(fields: [trackedEntityId], references: [id], onDelete: Cascade)
+
+  @@unique([trackedEntityId, ticker])
+}
+
+// Durable cache of already-parsed House Clerk / Senate eFD filings — these
+// filings never change once submitted, so once one is parsed there is no
+// reason to ever re-fetch or re-parse it. Also doubles as the "flag for
+// manual review" mechanism the free congress-PDF pipeline needs: a row with
+// needsReview=true recorded exactly which lines/rows failed to parse and
+// why, rather than that information only ever reaching a server log.
+// Gated off by default along with the rest of that pipeline — see
+// lib/trackers/congressPdfGate.ts.
+model ParsedFilingCache {
+  id               String   @id @default(cuid())
+  // "house" | "senate"
+  chamber          String
+  // House: the numeric filing id from the PDF's own filename
+  // (ptr-pdfs/{year}/{filingId}.pdf). Senate: the UUID from the filing's
+  // /search/view/ptr/{filingId}/ URL. Either way, this is the source's own
+  // stable natural key — never app-generated.
+  filingId         String
+  sourceUrl        String
+  filerName        String?
+  disclosureDate   DateTime?
+  parsedAt         DateTime @default(now())
+  // House only — true when at least one page needed the OCR fallback
+  // (lib/trackers/ocrFallback.ts) rather than direct text extraction.
+  usedOcr          Boolean  @default(false)
+  transactionCount Int
+  unparsedCount    Int      @default(0)
+  // Array of {line/row, reason, context?} — never silently dropped, always
+  // recorded here for a human to go look at the source filing directly.
+  unparsedDetail   Json?
+  needsReview      Boolean  @default(false)
+
+  @@unique([chamber, filingId])
+  @@index([needsReview])
+}
+
+model TrackerFollow {
+  // Serves both the alerts feature and the paper-follow feature as one
+  // relationship — following an entity both starts the hypothetical
+  // performance snapshot AND opts the user into new-disclosure notices.
+  id               String   @id @default(cuid())
+  userId           String
+  trackedEntityId  String
+  snapshotAt       DateTime @default(now())
+  // [{ticker, shares, priceAtFollow}] at follow time.
+  snapshotHoldings Json
+  createdAt        DateTime @default(now())
+
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trackedEntity TrackedEntity @relation(fields: [trackedEntityId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, trackedEntityId])
+}
+
+model TrackerNotification {
+  id              String   @id @default(cuid())
+  userId          String
+  trackedEntityId String
+  transactionId   String?
+  message         String
+  read            Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// --- Simulated Portfolio (paper trading) ---
+// A row here IS the durable purchase record — it only ever exists once a
+// paid tier's Stripe payment is confirmed (via the checkout.session.completed
+// webhook, never the client-side success-redirect) or, for the free tier,
+// instantly with no Stripe involvement at all. There is deliberately no
+// separate "pending purchase" model/status: nothing is created until
+// payment is confirmed, so there is nothing pending to represent. Multiple
+// portfolios per user are allowed, including more than one of the same
+// tier — see the "Simulated Portfolio" plan for the reasoning.
+model SimulatedPortfolio {
+  id     String @id @default(cuid())
+  userId String
+  // "starter" ($1,000/free) | "growth" ($10,000/$1) | "pro" ($100,000/$5) |
+  // "elite" ($1,000,000/$10) — see lib/simulatedTrading/tiers.ts for the
+  // canonical tier -> startingBalance/priceCents table.
+  tier            String
+  startingBalance Float
+  cashBalance     Float
+  // Amount actually charged in cents (0 for the free tier) — captured at
+  // purchase time so a later change to a tier's price never rewrites
+  // history for portfolios already created under the old price.
+  priceCents Int
+  // Both null only for the free tier. Unique so the Stripe webhook (which
+  // Stripe may retry) can upsert idempotently instead of ever double-
+  // granting a balance for the same confirmed payment.
+  stripeCheckoutSessionId String?  @unique
+  stripePaymentIntentId   String?  @unique
+  createdAt               DateTime @default(now())
+
+  user         User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  holdings     SimulatedHolding[]
+  transactions SimulatedTransaction[]
+  snapshots    SimulatedPortfolioSnapshot[]
+
+  @@index([userId])
+}
+
+model SimulatedHolding {
+  id          String @id @default(cuid())
+  portfolioId String
+  // "stock" | "commodity" | "crypto"
+  assetType String
+  // Ticker (stock) / provider symbol e.g. "USO", "C:XAUUSD" (commodity) /
+  // CoinGecko id (crypto) — whatever lib/simulatedTrading/pricing.ts's
+  // getCurrentPrice expects for this assetType.
+  symbol String
+  // Display name captured at first buy — not re-verified server-side on
+  // later trades of the same holding, matching how this app already lets
+  // low-stakes display-only fields (e.g. WatchlistItem.name) come from the
+  // client as-is.
+  name             String?
+  quantity         Float
+  // Per-unit weighted average cost — recomputed on every buy
+  // (existingQty*existingAvg + buyQty*buyPrice) / (existingQty+buyQty));
+  // unchanged by a sell (only quantity drops).
+  averageCostBasis Float
+  updatedAt        DateTime @updatedAt
+
+  portfolio SimulatedPortfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@unique([portfolioId, assetType, symbol])
+}
+
+model SimulatedTransaction {
+  id          String @id @default(cuid())
+  portfolioId String
+  assetType   String
+  symbol      String
+  name        String?
+  // "buy" | "sell"
+  transactionType String
+  quantity        Float
+  // Execution price per unit at trade time — a fresh, non-cached fetch
+  // (lib/simulatedTrading/pricing.ts), never a client-submitted price.
+  price      Float
+  totalValue Float
+  createdAt  DateTime @default(now())
+
+  portfolio SimulatedPortfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId])
+}
+
+// Daily total-value snapshots for the performance-over-time chart — same
+// role as TrackerPerformanceSnapshot plays for 13F funds, populated by a
+// scheduled job (app/api/simulated-portfolio/snapshot/route.ts) rather
+// than computed on the fly, so a chart has real historical points instead
+// of only ever showing "now."
+model SimulatedPortfolioSnapshot {
+  id          String   @id @default(cuid())
+  portfolioId String
+  asOfDate    DateTime
+  totalValue  Float
+  createdAt   DateTime @default(now())
+
+  portfolio SimulatedPortfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@unique([portfolioId, asOfDate])
+}
+
+// --- Organizations: shared multi-user infrastructure ---
+// First multi-user concept in this app (originally built for Compliance,
+// generalized so any future B2B feature — reporting, model portfolios,
+// etc. — can reuse it rather than growing its own org/roles/billing/audit
+// log). Deliberately minimal: one org per user for now (Membership's
+// composite unique supports more later, but every route just does
+// findFirst({where:{userId}}) today — see lib/orgAuth.ts). A membership
+// holds one org-wide tier ("member"|"admin") plus zero or more per-feature-
+// area role grants (FeatureRoleGrant) — Compliance's own three roles
+// (employee/compliance_officer/admin) are the "compliance" feature area's
+// grant vocabulary, unchanged in meaning, just relocated (see
+// lib/complianceAuth.ts).
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  // Branding — nullable; white-label reporting is the first real consumer.
+  logoUrl    String?
+  brandColor String?
+  // Per-seat Stripe subscription — nullable until an Admin starts billing
+  // from /settings/organization; mirrors SimulatedPortfolio's existing
+  // nullable-until-paid Stripe fields.
+  stripeCustomerId         String? @unique
+  stripeSubscriptionId     String? @unique
+  stripeSubscriptionItemId String? @unique
+  createdAt DateTime @default(now())
+
+  memberships          Membership[]
+  invites              OrgInvite[]
+  restrictedList       RestrictedListEntry[]
+  tradeDisclosures     TradeDisclosure[]
+  preclearanceRequests PreclearanceRequest[]
+  complianceFlags      ComplianceFlag[]
+  auditLog             AuditLogEntry[]
+  reports              Report[]
+  modelPortfolios      ModelPortfolio[]
+  benchmarkPeerSet     BenchmarkPeerSet?
+  benchmarkSnapshots   BenchmarkMetricSnapshot[]
+}
+
+model Membership {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  // Org-wide tier only: "member" | "admin". Admin bypasses every per-feature
+  // grant below with full access everywhere, and never gets a redundant
+  // grant row of its own. Physically still the "role" column — this used
+  // to hold Compliance's own flat role string directly; that value now
+  // lives in FeatureRoleGrant below instead (see the add_org_infra_generalization
+  // + backfill_feature_role_grants migrations).
+  orgRole        String   @map("role")
+  createdAt      DateTime @default(now())
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  featureRoleGrants FeatureRoleGrant[]
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+// One row per (membership, feature area) — e.g. {featureArea:"compliance",
+// role:"compliance_officer"}. Each feature area owns its own role
+// vocabulary/rank logic (Compliance keeps ROLE_RANK in lib/compliance/roles.ts
+// unchanged) — this table never encodes rank semantics itself, just the
+// grant. See lib/orgAuth.ts's requireFeatureRole for how a caller's own
+// rank comparator plugs in.
+model FeatureRoleGrant {
+  id           String   @id @default(cuid())
+  membershipId String
+  featureArea  String
+  role         String
+  createdAt    DateTime @default(now())
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, featureArea])
+  @@index([membershipId])
+}
+
+model OrgInvite {
+  id              String    @id @default(cuid())
+  organizationId  String
+  // Unguessable public token, deliberately distinct from `id` — mirrors
+  // UserCertificate.shareId's existing pattern.
+  token           String    @unique @default(cuid())
+  // Same meaning/mapping as Membership.orgRole above.
+  orgRole         String    @map("role")
+  // Display-only reminder of who a link was generated for — this app has
+  // no email-sending capability, so this is never used to send mail or
+  // checked against the accepting account's actual email.
+  email           String?
+  createdByUserId String
+  expiresAt       DateTime
+  usedAt          DateTime?
+  usedByUserId    String?
+  createdAt       DateTime  @default(now())
+
+  organization  Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  featureGrants OrgInviteFeatureGrant[]
+
+  @@index([organizationId])
+}
+
+// Pending per-feature grants an invite carries — copied 1:1 into real
+// FeatureRoleGrant rows the moment /api/compliance/join/[token] accepts it.
+model OrgInviteFeatureGrant {
+  id          String @id @default(cuid())
+  orgInviteId String
+  featureArea String
+  role        String
+
+  orgInvite OrgInvite @relation(fields: [orgInviteId], references: [id], onDelete: Cascade)
+
+  @@unique([orgInviteId, featureArea])
+}
+
+model RestrictedListEntry {
+  id              String    @id @default(cuid())
+  organizationId  String
+  ticker          String
+  companyName     String?
+  notes           String?
+  addedByUserId   String
+  addedAt         DateTime  @default(now())
+  // Soft-delete: null = currently restricted. The full row set (including
+  // removed ones) IS the restricted-list history — no second table needed.
+  removedByUserId String?
+  removedAt       DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, removedAt])
+  @@index([organizationId, ticker])
+}
+
+model TradeDisclosure {
+  id              String   @id @default(cuid())
+  organizationId  String
+  userId          String
+  ticker          String
+  tradeDate       DateTime
+  transactionType String // "buy" | "sell"
+  quantity        Float
+  notes           String?
+  createdAt       DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId])
+  @@index([organizationId, createdAt])
+  @@index([ticker])
+}
+
+model PreclearanceRequest {
+  id                String    @id @default(cuid())
+  organizationId    String
+  userId            String
+  ticker            String
+  proposedTradeDate DateTime
+  transactionType   String
+  quantity          Float
+  notes             String?
+  status            String    @default("pending") // "pending" | "approved" | "denied"
+  decidedByUserId   String?
+  decidedAt         DateTime?
+  decisionNotes     String?
+  createdAt         DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@index([organizationId, userId])
+  @@index([ticker])
+}
+
+model ComplianceFlag {
+  id               String    @id @default(cuid())
+  organizationId   String
+  // "trade_disclosure" | "preclearance_request" — loose reference (no
+  // Prisma relation, since the source can be either model), mirroring
+  // TrackerNotification.transactionId's existing pattern.
+  sourceType       String
+  sourceId         String
+  userId           String // the employee whose trade/request triggered this
+  ticker           String
+  tradeDate        DateTime // denormalized from the source row for sorting/display
+  flagType         String   // "restricted_list" | "insider_proximity"
+  details          Json?
+  status           String    @default("open") // "open" | "reviewed"
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  reviewNotes      String?
+  createdAt        DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@index([userId])
+  @@index([sourceType, sourceId])
+}
+
+// Generic, feature-agnostic audit log — every B2B feature writes here via
+// lib/auditLog.ts's logAction(), the role logComplianceAction() played for
+// Compliance alone before this. @@map pins this to the ORIGINAL
+// "ComplianceAuditLogEntry" table — renaming the Prisma model is a
+// client-level-only rename (Prisma's migration diffing compares the mapped
+// name), so every existing row and its exact `action` string is untouched.
+model AuditLogEntry {
+  id             String   @id @default(cuid())
+  organizationId String
+  actorUserId    String // plain String, no relation — see Membership's actor-field note
+  // "restricted_list_add" | "restricted_list_remove" | "trade_disclosed" |
+  // "preclearance_requested" | "preclearance_approved" | "preclearance_denied" |
+  // "flag_created" | "flag_reviewed" | "invite_created" | "member_joined" |
+  // "member_role_changed" | "member_removed" (Compliance's own actions) —
+  // plus a growing set of "org"-area actions (see lib/org/auditLog.ts) and
+  // any future feature's own action vocabulary. Plain String, no enum.
+  action         String
+  // Nullable; backfilled to "compliance" for every pre-existing row. Lets
+  // the shared table distinguish which feature area wrote an entry now
+  // that more than one exists.
+  featureArea    String?
+  targetType     String?
+  targetId       String?
+  // Denormalized since most actions are ticker-centric — lets "search by
+  // ticker" be a plain indexed equality filter instead of a jsonb query.
+  ticker         String?
+  details        Json?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("ComplianceAuditLogEntry")
+  @@index([organizationId, createdAt])
+  @@index([organizationId, ticker])
+  @@index([organizationId, action])
+  @@index([organizationId, featureArea])
+}
+
+// --- White-label branded reporting ---
+// First real second consumer of lib/orgAuth.ts's requireFeatureRole beyond
+// Compliance (feature area "reporting", one role: "advisor" — see
+// lib/reporting/roles.ts). A row stores only raw calculator INPUTS, never a
+// rendered PDF — viewing/downloading always re-renders from these inputs
+// plus the organization's current branding, so there is nothing to keep in
+// sync when branding changes later.
+model Report {
+  id             String @id @default(cuid())
+  organizationId String
+  // Plain String, no relation — actor-field convention (see Membership's
+  // orgRole comment and AuditLogEntry.actorUserId).
+  createdByUserId String
+  clientName      String
+  // [{ type: "dcf"|"dca"|"ebitda"|"ev-ebitda"|"peg", inputs: {...} }, ...]
+  calculators Json
+  // "none" | "simulated" | "manual" — no Prisma enum, matching this
+  // schema's existing convention (see WatchlistItem.assetType).
+  portfolioSource String
+  // Plain string reference, no relation — SimulatedPortfolio is a
+  // different, user-scoped (not organization-scoped) model, mirroring
+  // ComplianceFlag.sourceId's loose-reference convention. Set only when
+  // portfolioSource === "simulated"; re-fetched LIVE on every render, never
+  // a frozen snapshot.
+  simulatedPortfolioId String?
+  // [{ label: string, value: number }, ...]. Set only when portfolioSource
+  // === "manual" — unlike the simulated path, these ARE frozen exactly as
+  // typed at creation time.
+  manualHoldings Json?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, createdByUserId])
+}
+
+// --- Model Portfolio Builder ---
+// A named, weight-based allocation TEMPLATE — deliberately distinct from
+// SimulatedPortfolio (real trades, real cash balance, real drift). A model
+// portfolio's "performance" is a hypothetical fixed-weight index: every
+// holding's target weight is reapplied fresh at every valuation (see
+// lib/modelPortfolios/valuation.ts), so weights never drift between
+// rebalances — there is no implied share-quantity bookkeeping and no
+// explicit "rebalance" action, by design (see the plan's rebalancing
+// decision). Reuses the "reporting" feature area/role (lib/reportingAuth.ts)
+// — no new role vocabulary.
+model ModelPortfolio {
+  id              String   @id @default(cuid())
+  organizationId  String
+  // Plain String, no relation — actor-field convention (see Membership's
+  // orgRole comment and AuditLogEntry.actorUserId).
+  createdByUserId String
+  name            String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  holdings     ModelPortfolioHolding[]
+  snapshots    ModelPortfolioSnapshot[]
+  shareLink    ModelPortfolioShareLink?
+
+  @@index([organizationId, createdByUserId])
+}
+
+model ModelPortfolioHolding {
+  id               String @id @default(cuid())
+  modelPortfolioId String
+  // "stock" | "commodity" | "crypto" — matches
+  // lib/simulatedTrading/pricing.ts's AssetType, reused as-is.
+  assetType String
+  symbol    String
+  name      String?
+  // Holdings on one portfolio must sum to 100 (±0.01) — validated server-side.
+  targetWeightPercent Float
+  // Captured via getCurrentPrice when the holding is added/replaces an old
+  // one — the fixed reference point in the driftless value formula. Never
+  // rewritten in place; editing weights on an EXISTING holding keeps its
+  // original priceAtCreation (see the plan's "forward-only" note).
+  priceAtCreation Float
+  createdAt       DateTime @default(now())
+
+  modelPortfolio ModelPortfolio @relation(fields: [modelPortfolioId], references: [id], onDelete: Cascade)
+
+  @@unique([modelPortfolioId, assetType, symbol])
+}
+
+// Daily hypothetical-value snapshot — mirrors SimulatedPortfolioSnapshot's
+// exact shape/idempotency convention (see app/api/model-portfolios/snapshot/route.ts).
+model ModelPortfolioSnapshot {
+  id               String   @id @default(cuid())
+  modelPortfolioId String
+  asOfDate         DateTime
+  value            Float
+  createdAt        DateTime @default(now())
+
+  modelPortfolio ModelPortfolio @relation(fields: [modelPortfolioId], references: [id], onDelete: Cascade)
+
+  @@unique([modelPortfolioId, asOfDate])
+}
+
+// The public read-only share-link security surface — one row per
+// ModelPortfolio. `active` is a reversible pause (same token; toggling back
+// on restores the same URL). Regenerating REPLACES `token` outright, which
+// permanently and immediately invalidates the old value: it stops existing
+// in this table at all, so any lookup by it returns zero rows — no
+// separate revocation-list/blacklist needed.
+model ModelPortfolioShareLink {
+  id               String   @id @default(cuid())
+  modelPortfolioId String   @unique
+  // 256-bit random (lib/modelPortfolios/shareToken.ts) — deliberately NOT
+  // cuid(), this schema's usual id convention. cuid values are time-ordered/
+  // structured for row-uniqueness, not designed to resist guessing, and
+  // this token is a bearer credential for a public unauthenticated route.
+  token     String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  modelPortfolio ModelPortfolio @relation(fields: [modelPortfolioId], references: [id], onDelete: Cascade)
+}
+
+// --- Peer Benchmarking Dashboard ---
+// Internal-only, read-only-to-the-firm — no client-sharing surface (unlike
+// ModelPortfolioShareLink above). A SHARED, org-wide resource: unlike
+// Report/ModelPortfolio (creator-private, Admin-sees-all), any member with
+// "reporting" feature access can view AND edit the same peer set — there is
+// no ownership check anywhere in this feature area (see lib/reportingAuth.ts
+// usage in app/api/benchmarking/*, all plain requireOrgRole("advisor") with
+// no orgAuth-direct nuance, unlike Reporting/Model Portfolios' own list routes).
+model BenchmarkPeerSet {
+  id               String   @id @default(cuid())
+  organizationId   String   @unique
+  ownCompanyTicker String?
+  createdByUserId  String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  peers        BenchmarkPeer[]
+}
+
+model BenchmarkPeer {
+  id                 String   @id @default(cuid())
+  benchmarkPeerSetId String
+  ticker             String
+  createdAt          DateTime @default(now())
+
+  benchmarkPeerSet BenchmarkPeerSet @relation(fields: [benchmarkPeerSetId], references: [id], onDelete: Cascade)
+
+  @@unique([benchmarkPeerSetId, ticker])
+}
+
+// Keyed by plain ticker string, not a BenchmarkPeer relation — a ticker
+// removed from the peer set later shouldn't orphan its own history, and the
+// "own company" ticker needs identical treatment to a peer ticker without a
+// special case. Same loose-reference convention as ComplianceFlag.sourceId /
+// Report.simulatedPortfolioId.
+model BenchmarkMetricSnapshot {
+  id             String   @id @default(cuid())
+  organizationId String
+  ticker         String
+  asOfDate       DateTime
+  revenueGrowth  Float?
+  grossMargin    Float?
+  fcfYield       Float?
+  forwardPE      Float?
+  evEbitda       Float?
+  // Labeled ROE (not ROIC) throughout schema/API/UI — Finnhub's free tier
+  // has no ROIC, only ROE; see lib/benchmarking/metrics.ts's own comment
+  // for the honest-substitution precedent (matches app/api/screener/route.ts).
+  roe            Float?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, ticker, asOfDate])
+  @@index([organizationId, ticker])
+}
+
+// --- Market Digest configuration ---
+// The first "one row of structured settings per user" model in this
+// schema — distinct from every existing per-item model (WatchlistItem,
+// PortfolioHolding). No row present = never configured = show the full
+// original fixed layout; "Reset to default" simply deletes the row rather
+// than needing a separate isDefault flag.
+model DashboardConfig {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  // Ordered list of VISIBLE section keys, in display order — presence +
+  // position encodes both visibility and order in one field. Plain string
+  // keys (see lib/digest/sections.ts's SectionKey), validated against a
+  // fixed known-key list at the app layer — no Prisma enum, matching this
+  // schema's established convention (see WatchlistItem.assetType).
+  sectionOrder Json
+
+  // Selected CatalogSector values for the Sector Cards section specifically
+  // — the only section with sub-item selection (Market Movers/Insider
+  // Activity/Top Headlines show dynamically-changing, non-stable items with
+  // no fixed list to pre-select from). Null = all 13 sectors (the default).
+  sectorCardsSectors Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
