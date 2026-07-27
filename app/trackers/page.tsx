@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowUpDown, Building2, ChevronDown, Clock, Landmark, Search, Sparkles, User } from "lucide-react";
+import { ArrowUpDown, Building2, ChevronDown, Clock, Landmark, Search, User } from "lucide-react";
 import RevealOnScroll from "@/components/RevealOnScroll";
 import { cardClass } from "@/lib/cardStyles";
 import EntityLogo from "@/components/trackers/EntityLogo";
@@ -438,15 +438,6 @@ export default function TrackersPage() {
                 ) : undefined
               }
             />
-
-            {!isSearching && (
-              <CategorySection
-                icon={Sparkles}
-                title="Custom Thematic Strategies"
-                description="Curated baskets built around a theme rather than a single filer."
-                comingSoonReason="Coming soon."
-              />
-            )}
 
             {isSearching && filtered.length === 0 && (
               <p className="text-sm text-foreground/60">No trackers found for &quot;{search}&quot;.</p>
