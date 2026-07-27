@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Building2, Landmark, User } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import ScrollHint from "@/components/ScrollHint";
 import { cardClass } from "@/lib/cardStyles";
+import EntityLogo from "@/components/trackers/EntityLogo";
+import { getInvestorPhoto } from "@/lib/trackers/investorPhotos";
 import {
   DateComparison,
   DividendsExcludedNote,
@@ -16,13 +18,6 @@ import {
 } from "@/components/trackers/TransparencyLabels";
 
 const PIE_COLORS = ["#6366f1", "#22c55e", "#f59e0b", "#ef4444", "#06b6d4", "#a855f7", "#ec4899", "#84cc16"];
-
-const TYPE_ICON: Record<string, typeof Landmark> = {
-  congress: Landmark,
-  hedge_fund: Building2,
-  investor: User,
-  insider: Building2,
-};
 
 const TYPE_LABEL: Record<string, string> = {
   congress: "Member of Congress",
@@ -210,7 +205,7 @@ export default function TrackerDetailView({ slug }: { slug: string }) {
   }
 
   const { entity, portfolioValue, holdings, sectorAllocation, topWinners, topLosers, performance, latestDisclosureDate, recentTransactions } = profile;
-  const Icon = TYPE_ICON[entity.type] ?? Building2;
+  const investorPhoto = getInvestorPhoto(entity.slug, entity.type);
 
   return (
     <main className="flex flex-1 flex-col items-center gap-6 p-8 pt-16">
@@ -220,8 +215,18 @@ export default function TrackerDetailView({ slug }: { slug: string }) {
         </Link>
 
         <div className="flex items-center gap-4">
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-foreground/10">
-            <Icon size={28} className="text-foreground/50" />
+          <div className="flex flex-col items-center gap-1">
+            <EntityLogo slug={entity.slug} type={entity.type} size={64} />
+            {investorPhoto && (
+              <a
+                href={investorPhoto.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="whitespace-nowrap text-center text-[10px] leading-tight text-foreground/40 hover:text-foreground/60 hover:underline"
+              >
+                {investorPhoto.photographer} · {investorPhoto.license}
+              </a>
+            )}
           </div>
           <div>
             <div className="flex items-center gap-2">

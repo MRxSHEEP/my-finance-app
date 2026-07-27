@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Building2, Clock, Landmark, Search, Sparkles, User } from "lucide-react";
 import RevealOnScroll from "@/components/RevealOnScroll";
 import { cardClass } from "@/lib/cardStyles";
+import EntityLogo from "@/components/trackers/EntityLogo";
 
 interface TrackerListEntry {
   slug: string;
@@ -15,15 +16,6 @@ interface TrackerListEntry {
   transactionsCount: number;
   latestActivity: string | null;
 }
-
-// Matches the icon language already established on the individual profile
-// page (components/trackers/TrackerDetailView.tsx's own TYPE_ICON) so a
-// card here and its destination header read as the same entity.
-const TYPE_ICON: Record<string, typeof Building2> = {
-  hedge_fund: Building2,
-  investor: User,
-  insider: Building2,
-};
 
 // The profile route (app/trackers/[type]/[slug]/page.tsx) only ever reads
 // its `slug` param — `type` in the URL is purely a readable label, so any
@@ -38,15 +30,12 @@ function formatDate(iso: string | null): string {
 }
 
 function EntityCard({ entity }: { entity: TrackerListEntry }) {
-  const Icon = TYPE_ICON[entity.type] ?? Building2;
   return (
     <Link
       href={`/trackers/${typeUrlSegment(entity.type)}/${entity.slug}`}
       className={cardClass("neutral", { interactive: true, extra: "flex items-center gap-3 p-4" })}
     >
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-foreground/10">
-        <Icon size={18} className="text-foreground/50" />
-      </div>
+      <EntityLogo slug={entity.slug} type={entity.type} size={40} />
       <div className="min-w-0 flex-1">
         <p className="truncate font-semibold text-foreground">{entity.name}</p>
         {entity.title && <p className="truncate text-xs text-foreground/60">{entity.title}</p>}
@@ -76,9 +65,15 @@ interface CategorySectionProps {
   description: string;
   entities?: TrackerListEntry[];
   comingSoonReason?: string;
+  // Not yet used by the other three real sections (Hedge Funds/Famous
+  // Investors/Company Insiders currently carry no disclaimer of their
+  // own) — added here specifically for Members of Congress, whose data
+  // is more legally/politically sensitive, using this app's existing
+  // disclaimer phrasing (see app/page.tsx's SPY Drivers section).
+  disclaimer?: string;
 }
 
-function CategorySection({ icon: Icon, title, description, entities, comingSoonReason }: CategorySectionProps) {
+function CategorySection({ icon: Icon, title, description, entities, comingSoonReason, disclaimer }: CategorySectionProps) {
   // A real category hidden entirely by an active search (zero matches)
   // rather than shown with an empty grid — an empty "Hedge Funds" section
   // during a search for "Pelosi" would just read as a bug.
@@ -101,6 +96,7 @@ function CategorySection({ icon: Icon, title, description, entities, comingSoonR
           ))}
         </div>
       )}
+      {disclaimer && !comingSoonReason && <p className="text-xs text-foreground/40">{disclaimer}</p>}
     </RevealOnScroll>
   );
 }
@@ -132,23 +128,15 @@ export default function TrackersPage() {
     };
   }, []);
 
-  // Members of Congress intentionally excluded from both the browsable
-  // list and search below — that data source (House Clerk PTR PDFs /
-  // Senate eFD filings, lib/trackers/congressPdfGate.ts) is gated off
-  // pending legal review of 5 U.S.C. app. § 105(c)'s commercial-use
-  // restriction, and this directory shouldn't surface real congressional
-  // trading data (from any source, including the older FMP-backed feed
-  // already sitting in this same table) while that review is pending.
-  const searchableEntities = useMemo(() => (entities ?? []).filter((e) => e.type !== "congress"), [entities]);
-
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    if (!term) return searchableEntities;
-    return searchableEntities.filter(
+    if (!term) return entities ?? [];
+    return (entities ?? []).filter(
       (e) => e.name.toLowerCase().includes(term) || (e.title ?? "").toLowerCase().includes(term)
     );
-  }, [searchableEntities, search]);
+  }, [entities, search]);
 
+  const congressMembers = filtered.filter((e) => e.type === "congress");
   const hedgeFunds = filtered.filter((e) => e.type === "hedge_fund");
   const investors = filtered.filter((e) => e.type === "investor");
   const insiders = filtered.filter((e) => e.type === "insider");
@@ -162,7 +150,7 @@ export default function TrackersPage() {
           <div>
             <h1 className="text-3xl font-bold text-foreground">Trackers</h1>
             <p className="text-sm text-foreground/50">
-              Follow real portfolio activity from hedge funds, famous investors, and company insiders.
+              Follow real portfolio activity from members of Congress, hedge funds, famous investors, and company insiders.
             </p>
           </div>
 
@@ -193,14 +181,13 @@ export default function TrackersPage() {
 
         {entities !== null && (
           <>
-            {!isSearching && (
-              <CategorySection
-                icon={Landmark}
-                title="Members of Congress"
-                description="Periodic Transaction Reports from the House Clerk and Senate eFD systems."
-                comingSoonReason="Coming soon — this pipeline is built but disabled pending legal review of the Ethics in Government Act's commercial-use restriction on these disclosures."
-              />
-            )}
+            <CategorySection
+              icon={Landmark}
+              title="Members of Congress"
+              description="Periodic Transaction Reports from the House Clerk and Senate eFD systems."
+              entities={congressMembers}
+              disclaimer="For informational purposes only — not investment advice."
+            />
 
             <CategorySection
               icon={Building2}
