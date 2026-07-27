@@ -86,6 +86,10 @@ function toActivitySnapshot(entries: Array<{
   reportedDate: string | null;
   disclosureDate: string | null;
   reportingPersonName: string | null;
+  shares: number | null;
+  exactValue: number | null;
+  amountLow: number | null;
+  amountHigh: number | null;
 }>): TrackerActivitySnapshot[] {
   return entries.slice(0, MAX_TRACKER_ACTIVITY_PER_CATEGORY).map((entry) => ({
     entityName: entry.entityName,
@@ -94,6 +98,10 @@ function toActivitySnapshot(entries: Array<{
     reportedDate: entry.reportedDate,
     disclosureDate: entry.disclosureDate,
     reportingPersonName: entry.reportingPersonName,
+    shares: entry.shares,
+    exactValue: entry.exactValue,
+    amountLow: entry.amountLow,
+    amountHigh: entry.amountHigh,
   }));
 }
 
@@ -124,7 +132,7 @@ export async function gatherTickerData(ticker: string, origin: string): Promise<
   // for every ticker where it comes back unavailable.
   const priceTargetSnapshot =
     priceTarget?.available && typeof priceTarget.high === "number" && typeof priceTarget.low === "number" && typeof priceTarget.average === "number"
-      ? { high: priceTarget.high, low: priceTarget.low, average: priceTarget.average }
+      ? { high: priceTarget.high, low: priceTarget.low, average: priceTarget.average, isEstimate: false }
       : null;
 
   const earningsSnapshot = earnings

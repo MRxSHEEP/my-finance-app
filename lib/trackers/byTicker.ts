@@ -20,6 +20,18 @@ export interface RecentActivityEntry {
   disclosureDate: string | null;
   reportingPersonName: string | null;
   sourceUrl: string | null;
+  // Insider (Form 4) transactions report real, precise figures; congress
+  // (PTR) disclosures only ever report a value RANGE, never shares or an
+  // exact figure — so exactly one of {shares/exactValue} vs
+  // {amountLow/amountHigh} is populated depending on entityType, never both.
+  // Additive fields — components/stocks/NotableHoldersCard.tsx (the other
+  // consumer of this shape, via the JSON API route) defines its own
+  // narrower local type and simply ignores fields it doesn't declare, so
+  // adding these here doesn't affect it.
+  shares: number | null;
+  exactValue: number | null;
+  amountLow: number | null;
+  amountHigh: number | null;
 }
 
 export interface NotableHoldersData {
@@ -86,6 +98,10 @@ export async function getNotableHoldersForTicker(ticker: string): Promise<Notabl
     disclosureDate: tx.disclosureDate?.toISOString() ?? null,
     reportingPersonName: tx.reportingPersonName,
     sourceUrl: tx.sourceUrl,
+    shares: tx.shares,
+    exactValue: tx.exactValue,
+    amountLow: tx.amountLow,
+    amountHigh: tx.amountHigh,
   }));
 
   return { congressHolderCount, hedgeFundHolderCount, recentInsiderTransactionCount, holders, recentActivity };

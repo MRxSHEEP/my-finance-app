@@ -55,6 +55,14 @@ export async function GET(request: NextRequest) {
       continue;
     }
 
+    // Claude only ever produces estimatedPriceTarget when data.priceTarget
+    // came back null (see buildPrompt's conditional instruction in
+    // lib/signals/generate.ts) — so this never overwrites a real target,
+    // and the stored snapshot ends up with exactly one of: a real target
+    // (isEstimate: false), an AI one (isEstimate: true), or still null if
+    // neither was obtainable.
+    const dataToStore = { ...data, priceTarget: data.priceTarget ?? signal.estimatedPriceTarget };
+
     await prisma.tradeSignal.upsert({
       where: { ticker },
       update: {
@@ -62,7 +70,7 @@ export async function GET(request: NextRequest) {
         direction: signal.direction,
         confidence: signal.confidence,
         rationale: signal.rationale,
-        dataSnapshot: data as unknown as Prisma.InputJsonValue,
+        dataSnapshot: dataToStore as unknown as Prisma.InputJsonValue,
         generatedAt: new Date(),
       },
       create: {
@@ -71,7 +79,7 @@ export async function GET(request: NextRequest) {
         direction: signal.direction,
         confidence: signal.confidence,
         rationale: signal.rationale,
-        dataSnapshot: data as unknown as Prisma.InputJsonValue,
+        dataSnapshot: dataToStore as unknown as Prisma.InputJsonValue,
       },
     });
 

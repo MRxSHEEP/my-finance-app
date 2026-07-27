@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
+  Info,
   Minus,
   TrendingDown,
   TrendingUp,
@@ -45,6 +46,16 @@ function formatPercent(value: number | null): string {
   return value === null ? "N/A" : `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
+// For transaction dollar amounts (hundreds to millions) rather than share
+// prices — same compact-currency convention already used elsewhere for
+// this kind of figure (e.g. components/stocks/NotableHoldersCard.tsx).
+const compactCurrencyFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
 // Prominent, persistent, non-dismissible — deliberately more visible than
 // this app's usual plain-text disclaimer convention (see
 // SimulatedTradingDisclaimer.tsx/ModelPortfolioDisclaimer.tsx's own
@@ -67,18 +78,33 @@ function SignalsDisclaimer() {
 }
 
 // Reused from lib/signals/gather.ts's own TrackerActivitySnapshot shape —
-// insider (Form 4) and congressional (PTR) rows render identically here,
-// just under different headings.
+// insider (Form 4) and congressional (PTR) rows share this same renderer,
+// just under different headings. Insider rows carry real shares/exactValue;
+// congress rows only ever carry an amountLow/amountHigh range (never both)
+// — showing whichever is present is what visually distinguishes genuinely
+// separate same-day transactions (e.g. several 10b5-1 sale tranches from
+// the same person) instead of every row for one person on one day looking
+// identical.
 function ActivityList({ entries }: { entries: SignalDataSnapshot["insiderActivity"] }) {
   if (entries.length === 0) return <p className="text-foreground/40">None in the tracked window</p>;
   return (
     <ul className="flex flex-col gap-0.5">
-      {entries.map((entry, i) => (
-        <li key={i}>
-          {entry.reportingPersonName ?? entry.entityName}: {entry.transactionType}
-          {entry.reportedDate ? ` (${new Date(entry.reportedDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })})` : ""}
-        </li>
-      ))}
+      {entries.map((entry, i) => {
+        const amount =
+          entry.shares !== null && entry.exactValue !== null
+            ? `${entry.shares.toLocaleString()} sh (${compactCurrencyFormatter.format(entry.exactValue)})`
+            : entry.amountLow !== null && entry.amountHigh !== null
+              ? `${compactCurrencyFormatter.format(entry.amountLow)}-${compactCurrencyFormatter.format(entry.amountHigh)}`
+              : null;
+
+        return (
+          <li key={i}>
+            {entry.reportingPersonName ?? entry.entityName}: {entry.transactionType}
+            {entry.reportedDate ? ` (${new Date(entry.reportedDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })})` : ""}
+            {amount && <span className="text-foreground/50"> · {amount}</span>}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -106,11 +132,24 @@ function DataBreakdown({ snapshot }: { snapshot: SignalDataSnapshot }) {
 
       <div className="border-t border-black/10 pt-2 dark:border-white/15">
         <p className="font-medium text-foreground">Price target</p>
-        <p>
-          {priceTarget
-            ? `Low ${formatMoney(priceTarget.low)} · Avg ${formatMoney(priceTarget.average)} · High ${formatMoney(priceTarget.high)}`
-            : "Not available for this ticker"}
-        </p>
+        {priceTarget?.isEstimate ? (
+          <div className="mt-1 flex items-start gap-2 rounded-md border border-dashed border-foreground/15 px-3 py-2 text-foreground/50">
+            <Info size={14} className="mt-0.5 shrink-0 text-foreground/30" />
+            <span>
+              Est. price target{" "}
+              <span className="font-medium text-foreground/70">
+                {formatMoney(priceTarget.low)}–{formatMoney(priceTarget.high)} (avg {formatMoney(priceTarget.average)})
+              </span>{" "}
+              — AI-estimated from the data above, not a reported analyst price target.
+            </span>
+          </div>
+        ) : priceTarget ? (
+          <p>
+            Low {formatMoney(priceTarget.low)} · Avg {formatMoney(priceTarget.average)} · High {formatMoney(priceTarget.high)}
+          </p>
+        ) : (
+          <p>Not available for this ticker</p>
+        )}
       </div>
 
       <div className="border-t border-black/10 pt-2 dark:border-white/15">
