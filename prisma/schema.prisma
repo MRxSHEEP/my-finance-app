@@ -864,3 +864,43 @@ model DashboardConfig {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
+
+// --- AI trade signals ---
+// Cached daily AI-generated trade signal per ticker (see app/signals/page.tsx
+// and the daily ingest cron at app/api/signals/ingest/route.ts) — one row
+// per ticker, upserted by the cron, never computed at page-load time.
+// Mirrors TrackerHolding's "current snapshot, always overwritten on
+// recompute" convention rather than an ever-growing history table, since
+// nothing in this feature needs a signal's history over time yet.
+model TradeSignal {
+  id     String @id @default(cuid())
+  ticker String @unique
+
+  companyName String?
+
+  // "bullish" | "neutral" | "bearish" — no fixed schema enum, matching
+  // this app's existing convention for open-ended string categories (see
+  // TrackedEntity.type, TrackerTransaction.transactionType).
+  direction String
+
+  // 0-100 — the model's own stated confidence in this specific call, not
+  // a backtested/outcome-tracked accuracy score (no mechanism in this app
+  // grades past calls against what actually happened).
+  confidence Int
+
+  // Required, must explicitly cite which fed-in data points drove the
+  // call — this app's "show your work" principle applied to signals.
+  rationale String @db.Text
+
+  // The exact data this signal was generated from, stored verbatim (not
+  // re-derived later from data that may have since changed). Shape
+  // documented in lib/signals/types.ts (SignalDataSnapshot), not enforced
+  // at the DB layer — same reasoning as WatchlistItem/DashboardConfig's
+  // existing Json fields.
+  dataSnapshot Json
+
+  generatedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([generatedAt])
+}
