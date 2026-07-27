@@ -13,6 +13,18 @@
       "schedule": "0 6 * * *"
     },
     {
+      "path": "/api/trackers/ingest/congress",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/trackers/ingest/congress-house-pdf",
+      "schedule": "30 8 * * *"
+    },
+    {
+      "path": "/api/trackers/ingest/congress-senate-pdf",
+      "schedule": "0 9 * * *"
+    },
+    {
       "path": "/api/simulated-portfolio/snapshot",
       "schedule": "5 0 * * *"
     },
