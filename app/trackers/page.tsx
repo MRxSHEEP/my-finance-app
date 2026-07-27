@@ -266,7 +266,7 @@ export default function TrackersPage() {
   const [congressPage, setCongressPage] = useState(1);
   const [congressSort, setCongressSort] = useState<CongressSortKey>("portfolio_value");
   const [insiderSector, setInsiderSector] = useState<SectorFilter>("All");
-  const [insiderVisibleCount, setInsiderVisibleCount] = useState(INSIDER_PAGE_SIZE);
+  const [insiderPage, setInsiderPage] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -311,7 +311,7 @@ export default function TrackersPage() {
   if (search !== prevSearch) {
     setPrevSearch(search);
     setCongressPage(1);
-    setInsiderVisibleCount(INSIDER_PAGE_SIZE);
+    setInsiderPage(1);
   }
 
   const sortedCongressMembers = sortCongressMembers(congressMembers, congressSort);
@@ -329,8 +329,8 @@ export default function TrackersPage() {
     effectiveCongressPage * CONGRESS_PAGE_SIZE
   );
 
-  // Sector filter narrows the list *before* pagination — "Load more"
-  // continues within this filtered set, not the full unfiltered one.
+  // Sector filter narrows the list *before* pagination — arrows paginate
+  // within this filtered set, not the full unfiltered one.
   const sectorFilteredInsiders =
     insiderSector === "All"
       ? insiders
@@ -342,10 +342,15 @@ export default function TrackersPage() {
   const [prevInsiderSector, setPrevInsiderSector] = useState(insiderSector);
   if (insiderSector !== prevInsiderSector) {
     setPrevInsiderSector(insiderSector);
-    setInsiderVisibleCount(INSIDER_PAGE_SIZE);
+    setInsiderPage(1);
   }
 
-  const visibleInsiders = sectorFilteredInsiders.slice(0, insiderVisibleCount);
+  const insiderTotalPages = Math.max(1, Math.ceil(sectorFilteredInsiders.length / INSIDER_PAGE_SIZE));
+  const effectiveInsiderPage = Math.min(insiderPage, insiderTotalPages);
+  const paginatedInsiders = sectorFilteredInsiders.slice(
+    (effectiveInsiderPage - 1) * INSIDER_PAGE_SIZE,
+    effectiveInsiderPage * INSIDER_PAGE_SIZE
+  );
 
   const isSearching = search.trim().length > 0;
 
@@ -419,22 +424,14 @@ export default function TrackersPage() {
               icon={Building2}
               title="Company Insiders"
               description="Form 4 insider buy/sell activity, sourced directly from SEC EDGAR."
-              entities={visibleInsiders}
+              entities={paginatedInsiders}
               forceShow={insiders.length > 0}
               filters={
                 <SectorFilterDropdown sector={insiderSector} onChange={setInsiderSector} label="Filter by sector" />
               }
               pagination={
-                sectorFilteredInsiders.length > insiderVisibleCount ? (
-                  <div className="flex justify-center">
-                    <button
-                      type="button"
-                      onClick={() => setInsiderVisibleCount((count) => count + INSIDER_PAGE_SIZE)}
-                      className="rounded-md border border-black/10 px-4 py-2 text-sm font-medium text-foreground/70 transition-colors duration-200 ease-out hover:border-black/25 hover:text-foreground dark:border-white/15 dark:hover:border-white/30"
-                    >
-                      Load more ({sectorFilteredInsiders.length - insiderVisibleCount} more)
-                    </button>
-                  </div>
+                insiderTotalPages > 1 ? (
+                  <PaginationControls page={effectiveInsiderPage} totalPages={insiderTotalPages} onPageChange={setInsiderPage} />
                 ) : undefined
               }
             />
