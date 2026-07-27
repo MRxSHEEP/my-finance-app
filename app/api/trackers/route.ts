@@ -23,6 +23,7 @@ export async function GET() {
         orderBy: { createdAt: "desc" },
         take: 1,
       },
+      holdings: { select: { estimatedValue: true } },
     },
   });
 
@@ -34,6 +35,15 @@ export async function GET() {
     holdingsCount: e._count.holdings,
     transactionsCount: e._count.transactions,
     latestActivity: e.transactions[0]?.disclosureDate?.toISOString() ?? e.transactions[0]?.reportedDate?.toISOString() ?? null,
+    // Same sum-of-estimatedValue computation lib/trackers/profile.ts uses
+    // for "Est. Portfolio Value" on the detail page (that page's
+    // currentValue is always null for congress specifically, since
+    // congress holdings never get a `shares` count — only insiders/13F
+    // holdings do — so this filing-value sum IS that figure for congress,
+    // not a separate approximation of it). Exposed for every entity type
+    // here since it's the same cheap query either way, even though only
+    // the Congress list sorts by it today.
+    portfolioValue: e.holdings.reduce((sum, h) => sum + (h.estimatedValue ?? 0), 0),
   }));
 
   return NextResponse.json({ entities: out });

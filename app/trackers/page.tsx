@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Building2, Clock, Landmark, Search, Sparkles, User } from "lucide-react";
+import { ArrowUpDown, Building2, ChevronDown, Clock, Landmark, Search, Sparkles, User } from "lucide-react";
 import RevealOnScroll from "@/components/RevealOnScroll";
 import { cardClass } from "@/lib/cardStyles";
 import EntityLogo from "@/components/trackers/EntityLogo";
@@ -33,6 +33,115 @@ interface TrackerListEntry {
   holdingsCount: number;
   transactionsCount: number;
   latestActivity: string | null;
+  portfolioValue: number;
+}
+
+type CongressSortKey = "portfolio_value" | "recent" | "alphabetical" | "transactions";
+
+const CONGRESS_SORT_OPTIONS: { value: CongressSortKey; label: string }[] = [
+  { value: "portfolio_value", label: "Portfolio value (high to low)" },
+  { value: "recent", label: "Most recent disclosure" },
+  { value: "alphabetical", label: "Alphabetical (A-Z)" },
+  { value: "transactions", label: "Most transactions" },
+];
+
+// Applied before pagination — switching sort order re-sorts the full
+// (search-filtered) member list, then the existing page-slicing logic
+// repaginates the new order, same "filter/sort before paginating"
+// sequencing already established for Company Insiders' sector filter.
+function sortCongressMembers(members: TrackerListEntry[], sort: CongressSortKey): TrackerListEntry[] {
+  const sorted = [...members];
+  switch (sort) {
+    case "portfolio_value":
+      return sorted.sort((a, b) => b.portfolioValue - a.portfolioValue);
+    case "recent":
+      return sorted.sort((a, b) => (b.latestActivity ?? "").localeCompare(a.latestActivity ?? ""));
+    case "alphabetical":
+      return sorted.sort((a, b) => a.name.localeCompare(b.name));
+    case "transactions":
+      return sorted.sort((a, b) => b.transactionsCount - a.transactionsCount);
+    default:
+      return sorted;
+  }
+}
+
+// A custom-rendered listbox, not a native <select> — matches
+// components/SectorFilterDropdown.tsx and
+// components/portfolio/SimulatedPortfolioDetailView.tsx's StyledSelect
+// (same click-to-toggle trigger + absolute popup + click-outside/Escape
+// pattern), since a native select's open dropdown is rendered by the OS
+// and can't be themed for dark mode. Kept local to this page rather than
+// extracted to a shared file — CategorySection/EntityCard/etc. are
+// already local, page-scoped components here too.
+function CongressSortDropdown({ value, onChange }: { value: CongressSortKey; onChange: (value: CongressSortKey) => void }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    function handleEscape(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [open]);
+
+  const selected = CONGRESS_SORT_OPTIONS.find((o) => o.value === value)!;
+
+  return (
+    <div ref={containerRef} className="relative flex flex-col gap-1 text-xs text-foreground/60">
+      Sort by
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="flex items-center gap-2 rounded-md border border-black/10 bg-foreground/[0.02] px-3 py-1.5 text-sm text-foreground outline-none transition-colors duration-200 ease-out hover:border-black/25 dark:border-white/15 dark:hover:border-white/30"
+      >
+        <ArrowUpDown size={14} className="shrink-0 text-indigo-400" />
+        <span className="min-w-[11rem] text-left">{selected.label}</span>
+        <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-foreground/40 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <ul
+          role="listbox"
+          className="absolute left-0 top-full z-20 mt-1 w-64 overflow-auto rounded-md border border-black/10 bg-background py-1 text-sm shadow-lg dark:border-white/15"
+        >
+          {CONGRESS_SORT_OPTIONS.map((option) => {
+            const isSelected = option.value === value;
+            return (
+              <li key={option.value}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  onClick={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                  }}
+                  className={`block w-full px-3 py-2 text-left transition-colors duration-150 ease-out ${
+                    isSelected ? "bg-indigo-400/10 text-indigo-400" : "text-foreground hover:bg-foreground/5"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 // The profile route (app/trackers/[type]/[slug]/page.tsx) only ever reads
@@ -155,6 +264,7 @@ export default function TrackersPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [congressPage, setCongressPage] = useState(1);
+  const [congressSort, setCongressSort] = useState<CongressSortKey>("portfolio_value");
   const [insiderSector, setInsiderSector] = useState<SectorFilter>("All");
   const [insiderVisibleCount, setInsiderVisibleCount] = useState(INSIDER_PAGE_SIZE);
 
@@ -204,9 +314,17 @@ export default function TrackersPage() {
     setInsiderVisibleCount(INSIDER_PAGE_SIZE);
   }
 
-  const congressTotalPages = Math.max(1, Math.ceil(congressMembers.length / CONGRESS_PAGE_SIZE));
+  const sortedCongressMembers = sortCongressMembers(congressMembers, congressSort);
+
+  const [prevCongressSort, setPrevCongressSort] = useState(congressSort);
+  if (congressSort !== prevCongressSort) {
+    setPrevCongressSort(congressSort);
+    setCongressPage(1);
+  }
+
+  const congressTotalPages = Math.max(1, Math.ceil(sortedCongressMembers.length / CONGRESS_PAGE_SIZE));
   const effectiveCongressPage = Math.min(congressPage, congressTotalPages);
-  const paginatedCongressMembers = congressMembers.slice(
+  const paginatedCongressMembers = sortedCongressMembers.slice(
     (effectiveCongressPage - 1) * CONGRESS_PAGE_SIZE,
     effectiveCongressPage * CONGRESS_PAGE_SIZE
   );
@@ -275,6 +393,7 @@ export default function TrackersPage() {
               description="Periodic Transaction Reports from the House Clerk and Senate eFD systems."
               entities={paginatedCongressMembers}
               disclaimer="For informational purposes only — not investment advice."
+              filters={<CongressSortDropdown value={congressSort} onChange={setCongressSort} />}
               pagination={
                 congressTotalPages > 1 ? (
                   <PaginationControls page={effectiveCongressPage} totalPages={congressTotalPages} onPageChange={setCongressPage} />
