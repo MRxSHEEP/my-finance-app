@@ -15,6 +15,7 @@ import {
   Wallet,
   UserSearch,
   ShieldCheck,
+  Info,
   Menu,
 } from "lucide-react";
 import { useMobileNav } from "@/components/MobileNavContext";
@@ -37,6 +38,7 @@ const NAV_ITEMS = [
   { label: "Trackers", href: "/trackers", icon: UserSearch },
   { label: "Simulated Portfolio", href: "/portfolio", icon: Wallet },
   { label: "Compliance", href: "/compliance", icon: ShieldCheck },
+  { label: "About", href: "/about", icon: Info },
 ];
 
 // Gap between each flyout item's fade-in — kept snappy (not the more
