@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/trackers/ingest/insiders",
-      "schedule": "0 */6 * * *"
+      "schedule": "0 7 * * *"
     },
     {
       "path": "/api/trackers/ingest/thirteen-f",
