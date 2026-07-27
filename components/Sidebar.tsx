@@ -17,6 +17,8 @@ import {
   ShieldCheck,
   Info,
   Menu,
+  ChevronDown,
+  type LucideIcon,
 } from "lucide-react";
 import { useMobileNav } from "@/components/MobileNavContext";
 import { TICKER_BAR_HEIGHT_PX } from "@/components/TickerBar";
@@ -27,12 +29,40 @@ import { TICKER_BAR_HEIGHT_PX } from "@/components/TickerBar";
 // Screener likewise no longer has its own nav entry — it moved to
 // /tools/screener as another card alongside the other calculators (the
 // underlying /api/screener route is unchanged).
-const NAV_ITEMS = [
+interface LinkItem {
+  label: string;
+  href: string;
+  icon: LucideIcon;
+}
+
+interface GroupItem {
+  label: string;
+  icon: LucideIcon;
+  children: LinkItem[];
+}
+
+type NavEntry = LinkItem | GroupItem;
+
+function isGroupItem(item: NavEntry): item is GroupItem {
+  return "children" in item;
+}
+
+// Stocks/Crypto/Commodities were three separate top-level items; grouped
+// under one "Equities" accordion (see NavGroup below) since they're all
+// asset-class browsing screens of the same kind, distinct from the
+// tools/trackers/account-style items that stay top-level.
+const NAV_ITEMS: NavEntry[] = [
   { label: "News", href: "/news", icon: Newspaper },
   { label: "Earnings", href: "/earnings", icon: CalendarClock },
-  { label: "Stocks", href: "/stocks", icon: TrendingUp },
-  { label: "Crypto", href: "/crypto", icon: Bitcoin },
-  { label: "Commodities", href: "/commodities", icon: Fuel },
+  {
+    label: "Equities",
+    icon: TrendingUp,
+    children: [
+      { label: "Stocks", href: "/stocks", icon: TrendingUp },
+      { label: "Crypto", href: "/crypto", icon: Bitcoin },
+      { label: "Commodities", href: "/commodities", icon: Fuel },
+    ],
+  },
   { label: "Tools", href: "/tools", icon: Calculator },
   { label: "Learning", href: "/learning", icon: GraduationCap },
   { label: "Trackers", href: "/trackers", icon: UserSearch },
@@ -49,6 +79,83 @@ const FLYOUT_STAGGER_MS = 40;
 
 function isActiveHref(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+// Same expand/collapse technique as components/tools/HowItWorksAccordion.tsx
+// (grid-template-rows 0fr<->1fr on an overflow-hidden wrapper, so the
+// height transition works without knowing the content's real height, plus
+// a rotating ChevronDown) — that component itself doesn't fit here as-is
+// (it's a bordered content block, not a nav-item-styled row), so this
+// reuses the same underlying pattern rather than importing it directly.
+// Defaults open whenever the current route is already inside the group,
+// and re-opens (without fighting a manual collapse elsewhere) the moment
+// navigation enters the group from outside it — same "reveal where you
+// are" expectation as a plain nav item's active-state highlight.
+function NavGroup({
+  group,
+  pathname,
+  onNavigate,
+  staggered,
+  animationDelay,
+}: {
+  group: GroupItem;
+  pathname: string;
+  onNavigate?: () => void;
+  staggered: boolean;
+  animationDelay?: number;
+}) {
+  const childActive = group.children.some((c) => isActiveHref(pathname, c.href));
+  const [open, setOpen] = useState(childActive);
+
+  const [prevChildActive, setPrevChildActive] = useState(childActive);
+  if (childActive !== prevChildActive) {
+    setPrevChildActive(childActive);
+    if (childActive) setOpen(true);
+  }
+
+  return (
+    <div
+      className={staggered ? "animate-nav-item-fade-in" : ""}
+      style={staggered ? { animationDelay: `${animationDelay}ms` } : undefined}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors ${
+          childActive ? "font-semibold text-foreground" : "text-foreground/60 hover:bg-foreground/5 hover:text-foreground"
+        }`}
+      >
+        <group.icon size={18} />
+        <span className="flex-1 text-left">{group.label}</span>
+        <ChevronDown size={16} className={`shrink-0 transition-transform duration-200 ease-out ${open ? "rotate-180" : ""}`} />
+      </button>
+      <div className="grid transition-all duration-200 ease-out" style={{ gridTemplateRows: open ? "1fr" : "0fr" }}>
+        <div className="overflow-hidden">
+          <div className="flex flex-col gap-1 py-1 pl-4">
+            {group.children.map((child) => {
+              const active = isActiveHref(pathname, child.href);
+              return (
+                <Link
+                  key={child.href}
+                  href={child.href}
+                  onClick={onNavigate}
+                  className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
+                    active
+                      ? "bg-foreground/10 font-semibold text-foreground"
+                      : "text-foreground/60 hover:bg-foreground/5 hover:text-foreground"
+                  }`}
+                >
+                  <child.icon size={16} />
+                  {child.label}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // Shared between the full sidebar and the collapsed flyout so both list
@@ -68,7 +175,21 @@ function NavLinks({
 }) {
   return (
     <>
-      {NAV_ITEMS.map(({ label, href, icon: Icon }, index) => {
+      {NAV_ITEMS.map((item, index) => {
+        if (isGroupItem(item)) {
+          return (
+            <NavGroup
+              key={item.label}
+              group={item}
+              pathname={pathname}
+              onNavigate={onNavigate}
+              staggered={staggered}
+              animationDelay={index * FLYOUT_STAGGER_MS}
+            />
+          );
+        }
+
+        const { label, href, icon: Icon } = item;
         const active = isActiveHref(pathname, href);
         return (
           <Link
