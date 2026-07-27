@@ -100,8 +100,11 @@
      pure hard cut into the new scene even though the outgoing scene itself
      unmounts instantly (no exit animation — this app has no animation
      library for a true two-layer crossfade, and a slide+fade+scale entrance
-     is enough polish for a demo widget this size). */
-  --animate-scene-in: scene-in 500ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+     is enough polish for a demo widget this size). 800ms specifically:
+     500ms still read as too quick to register the slide/scale — this is
+     independent of SCENE_DURATION_MS (how long a scene stays put before
+     auto-advancing, in ComplianceWalkthrough.tsx), which is unchanged. */
+  --animate-scene-in: scene-in 800ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
   /* Compliance Preview's Flag scene — a soft, slow breathing ring around the
      flagged trade card so the one card in the whole walkthrough that
      represents "this got caught" reads as visually distinct, not just
