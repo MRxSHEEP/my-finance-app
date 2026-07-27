@@ -153,9 +153,32 @@ export async function buildTrackerProfile(slug: string, origin: string): Promise
 
   const totalFilingValue = holdingRows.reduce((sum, h) => sum + (h.estimatedValue ?? 0), 0);
 
-  const holdings: HoldingOut[] = resolvedHoldings.map((h) => {
+  const holdingsWithCurrentValue = resolvedHoldings.map((h) => {
     const quote = liveQuotes.get(h.ticker as string);
     const currentValue = quote?.price != null && h.shares != null ? h.shares * quote.price : null;
+    return { h, quote, currentValue };
+  });
+
+  // Filing value is the primary basis (the only one that exists at all for
+  // congress's range-based estimates, which never carry a live price) — but
+  // it degenerates to a $0 total when every holding's own disclosed
+  // transactions happened to report $0, which is legitimate SEC convention
+  // for insiders whose recorded history is entirely non-cash awards
+  // (confirmed live: Boeing's insiders tracker has exactly one real,
+  // currently-valuable holding that showed a misleading flat 0% under the
+  // filing-value-only basis, purely because $0 filing value / $0 total is
+  // 0/0). Current market value is the honest fallback basis in that case,
+  // rather than showing every holding as contributing nothing.
+  const totalCurrentValue = holdingsWithCurrentValue.reduce((sum, { currentValue }) => sum + (currentValue ?? 0), 0);
+
+  const holdings: HoldingOut[] = holdingsWithCurrentValue.map(({ h, quote, currentValue }) => {
+    const percentOfPortfolio =
+      totalFilingValue > 0
+        ? ((h.estimatedValue ?? 0) / totalFilingValue) * 100
+        : totalCurrentValue > 0 && currentValue != null
+          ? (currentValue / totalCurrentValue) * 100
+          : 0;
+
     return {
       ticker: h.ticker,
       issuerName: h.issuerName,
@@ -164,7 +187,7 @@ export async function buildTrackerProfile(slug: string, origin: string): Promise
       currentValue,
       currentPrice: quote?.price ?? null,
       percentChangeToday: quote?.percentChange ?? null,
-      percentOfPortfolio: totalFilingValue > 0 ? ((h.estimatedValue ?? 0) / totalFilingValue) * 100 : 0,
+      percentOfPortfolio,
       sector: h.ticker ? (SECTOR_BY_TICKER.get(h.ticker) ?? null) : null,
       isEstimate: h.isEstimate,
       asOfDate: h.asOfDate.toISOString(),
