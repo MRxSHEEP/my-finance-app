@@ -90,6 +90,28 @@
      rather than every item flashing into its end state together the
      instant the parent mounts. */
   --animate-nav-item-fade-in: nav-item-fade-in 200ms ease-out backwards;
+  /* Compliance Preview walkthrough (components/compliance/preview/) — each
+     scripted scene remounts via a changing `key` on the outer wrapper (same
+     restart technique as star-bounce/hamburger-spin above), so this plays
+     once per scene transition rather than looping within a scene. A longer
+     duration + a decelerating "ease-out-expo" curve (rather than the flatter
+     built-in `ease-out`) reads as noticeably more fluid for a transition
+     this size — paired with a subtle scale-in so it doesn't feel like a
+     pure hard cut into the new scene even though the outgoing scene itself
+     unmounts instantly (no exit animation — this app has no animation
+     library for a true two-layer crossfade, and a slide+fade+scale entrance
+     is enough polish for a demo widget this size). */
+  --animate-scene-in: scene-in 500ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  /* Compliance Preview's Flag scene — a soft, slow breathing ring around the
+     flagged trade card so the one card in the whole walkthrough that
+     represents "this got caught" reads as visually distinct, not just
+     another static card. Box-shadow (not transform/opacity like the other
+     tokens here) since this only ever animates one small card at a time,
+     not a full-page background layer — the cost this app's other comments
+     warn about doesn't apply at this scale. Same indigo used for this
+     card's border/badge elsewhere, so the glow reads as "more of this
+     card's own color," not an unrelated new accent. */
+  --animate-flag-glow: flag-glow 2.4s ease-in-out infinite;
 
   @keyframes hamburger-spin {
     from {
@@ -108,6 +130,27 @@
     to {
       opacity: 1;
       transform: translateY(0);
+    }
+  }
+
+  @keyframes scene-in {
+    from {
+      opacity: 0;
+      transform: translateX(14px) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+    }
+  }
+
+  @keyframes flag-glow {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgba(129, 140, 248, 0.35);
+    }
+    50% {
+      box-shadow: 0 0 16px 4px rgba(129, 140, 248, 0.22);
     }
   }
 
