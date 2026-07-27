@@ -85,6 +85,17 @@ export function NoDataYetNote({ reason }: { reason: string }) {
   );
 }
 
+export function ShareBasedEstimateBadge() {
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-sm bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-500"
+      title="Accumulated from real reported share counts across ingested disclosures — a best-effort running total from the transactions ingested so far, not a verified starting position, so treat this as an estimate rather than a confirmed exact holding."
+    >
+      Est. from activity
+    </span>
+  );
+}
+
 export function UnresolvedHoldingsNote({ count }: { count: number }) {
   if (count <= 0) return null;
   return (

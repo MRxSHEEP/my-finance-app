@@ -2,7 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowLeftRight,
+  Award,
+  Circle,
+  Clock,
+  Gift,
+  Receipt,
+  RefreshCw,
+  TrendingDown,
+  TrendingUp,
+  type LucideIcon,
+} from "lucide-react";
 import { Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import ScrollHint from "@/components/ScrollHint";
 import { cardClass } from "@/lib/cardStyles";
@@ -14,6 +26,7 @@ import {
   EstimateRangeBadge,
   MethodologyNote,
   NoDataYetNote,
+  ShareBasedEstimateBadge,
   UnresolvedHoldingsNote,
 } from "@/components/trackers/TransparencyLabels";
 
@@ -33,6 +46,73 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 const preciseCurrencyFormatter = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+
+// Reused for both the Type column badge and the Recent Trades section below
+// — one source of truth so a given transaction type always renders with
+// the same label/color/icon everywhere it's shown. Color language matches
+// the earnings dot chart / analyst rating spectrum work already in this
+// app: green = acquiring/buy signal, red = disposing/sell signal, neutral
+// gray for everything else (SEC Form 4 codes that don't represent an
+// open-market trading decision) — icons distinguish those neutral
+// categories from each other so they don't all read as one indistinct gray
+// blob.
+const TRANSACTION_TYPE_META: Record<string, { label: string; badgeClass: string; textClass: string; Icon: LucideIcon }> = {
+  buy: { label: "Buy", badgeClass: "bg-green-400/10 text-green-500", textClass: "text-green-500", Icon: TrendingUp },
+  sell: { label: "Sell", badgeClass: "bg-red-400/10 text-red-500", textClass: "text-red-500", Icon: TrendingDown },
+  partial_sell: { label: "Partial Sell", badgeClass: "bg-red-400/10 text-red-500", textClass: "text-red-500", Icon: TrendingDown },
+  option_exercise: { label: "Option Exercise", badgeClass: "bg-foreground/10 text-foreground/60", textClass: "text-foreground/70", Icon: RefreshCw },
+  award: { label: "Award", badgeClass: "bg-foreground/10 text-foreground/60", textClass: "text-foreground/70", Icon: Award },
+  gift: { label: "Gift", badgeClass: "bg-foreground/10 text-foreground/60", textClass: "text-foreground/70", Icon: Gift },
+  tax_withholding: { label: "Tax Withholding", badgeClass: "bg-foreground/10 text-foreground/60", textClass: "text-foreground/70", Icon: Receipt },
+  vesting: { label: "Vesting", badgeClass: "bg-foreground/10 text-foreground/60", textClass: "text-foreground/70", Icon: Clock },
+  exchange: { label: "Exchange", badgeClass: "bg-foreground/10 text-foreground/60", textClass: "text-foreground/70", Icon: ArrowLeftRight },
+  initial_position: { label: "Existing Position", badgeClass: "bg-foreground/10 text-foreground/60", textClass: "text-foreground/70", Icon: Circle },
+  other: { label: "Other", badgeClass: "bg-foreground/10 text-foreground/60", textClass: "text-foreground/70", Icon: Circle },
+};
+
+function getTypeMeta(type: string) {
+  return TRANSACTION_TYPE_META[type] ?? { label: type, badgeClass: "bg-foreground/10 text-foreground/60", textClass: "text-foreground/70", Icon: Circle };
+}
+
+function TransactionTypeBadge({ type }: { type: string }) {
+  const meta = getTypeMeta(type);
+  const Icon = meta.Icon;
+  return (
+    <span className={`inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-sm px-1.5 py-0.5 text-xs font-medium ${meta.badgeClass}`}>
+      <Icon size={11} />
+      {meta.label}
+    </span>
+  );
+}
+
+// SEC convention: these transaction types are routinely reported with no
+// cash price at all (RSU vesting, grants, tax withholding paid in shares,
+// gifts) — a $0/blank value there is correct, not missing data, so this
+// names the reason rather than leaving a bare "—" that reads as a bug.
+function nonCashExplanation(type: string): string | null {
+  switch (type) {
+    case "tax_withholding":
+      return "Shares withheld for taxes";
+    case "vesting":
+      return "Non-cash (RSU vesting)";
+    case "award":
+      return "Non-cash award";
+    case "option_exercise":
+      return "No cash price reported";
+    case "gift":
+      return "Gift — no value reported";
+    default:
+      return null;
+  }
+}
+
+// Only genuine open-market buys/sells are a "the insider chose to trade"
+// signal — matches the existing net-sentiment convention in
+// app/api/stock/insiders/route.ts, which excludes grants/gifts/tax
+// withholding/option exercises from the same calculation for the same
+// reason.
+const MEANINGFUL_TRADE_TYPES = new Set(["buy", "sell", "partial_sell"]);
+const RECENT_TRADES_LIMIT = 8;
 
 interface Holding {
   ticker: string | null;
@@ -91,47 +171,31 @@ interface TrackerProfile {
   performance: Performance;
 }
 
-function formatTransactionType(type: string): string {
-  switch (type) {
-    case "buy":
-      return "Buy";
-    case "sell":
-      return "Sell";
-    case "partial_sell":
-      return "Partial Sell";
-    case "exchange":
-      return "Exchange";
-    case "initial_position":
-      return "Existing Position";
-    default:
-      return type;
-  }
-}
-
 function TransactionRow({ tx }: { tx: TransactionOut }) {
-  const isBuy = tx.transactionType === "buy";
-  const isSell = tx.transactionType === "sell" || tx.transactionType === "partial_sell";
+  const meta = getTypeMeta(tx.transactionType);
+  const explanation = !tx.exactValue ? nonCashExplanation(tx.transactionType) : null;
 
   return (
     <tr className="border-t border-black/5 dark:border-white/10">
       <td className="p-2 font-medium text-foreground">{tx.ticker ?? tx.issuerName ?? "—"}</td>
       <td className="p-2">
-        <span
-          className={`rounded-sm px-1.5 py-0.5 text-xs font-medium ${
-            isBuy ? "bg-green-400/10 text-green-500" : isSell ? "bg-red-400/10 text-red-500" : "bg-foreground/10 text-foreground/60"
-          }`}
-        >
-          {formatTransactionType(tx.transactionType)}
-        </span>
+        <TransactionTypeBadge type={tx.transactionType} />
       </td>
       <td className="p-2">
         <DateComparison reportedDate={tx.reportedDate} tradeDate={tx.tradeDate} disclosureDate={tx.disclosureDate} />
       </td>
-      <td className="p-2 text-right">
+      <td className={`p-2 text-right ${meta.textClass}`}>
         {tx.isEstimate ? (
           <EstimateRangeBadge low={tx.amountLow} high={tx.amountHigh} />
-        ) : tx.exactValue != null ? (
+        ) : tx.exactValue ? (
           preciseCurrencyFormatter.format(tx.exactValue)
+        ) : explanation ? (
+          <span
+            className="text-xs italic text-foreground/40"
+            title="This transaction type is reported without a cash price per SEC convention — not missing data."
+          >
+            {explanation}
+          </span>
         ) : (
           <span className="text-foreground/40">—</span>
         )}
@@ -184,6 +248,14 @@ export default function TrackerDetailView({ slug }: { slug: string }) {
     }
     return list.sort((a, b) => (b.reportedDate ?? "").localeCompare(a.reportedDate ?? ""));
   }, [profile, sortKey]);
+
+  const recentMeaningfulTrades = useMemo(() => {
+    if (!profile) return [];
+    return profile.allTransactions
+      .filter((tx) => MEANINGFUL_TRADE_TYPES.has(tx.transactionType))
+      .sort((a, b) => (b.reportedDate ?? b.disclosureDate ?? "").localeCompare(a.reportedDate ?? a.disclosureDate ?? ""))
+      .slice(0, RECENT_TRADES_LIMIT);
+  }, [profile]);
 
   if (error) {
     return (
@@ -247,7 +319,11 @@ export default function TrackerDetailView({ slug }: { slug: string }) {
                 ? currencyFormatter.format(portfolioValue.currentValue)
                 : currencyFormatter.format(portfolioValue.filingValue)}
             </p>
-            {portfolioValue.isEstimate && <span className="text-[11px] text-amber-500">Range-based estimate</span>}
+            {portfolioValue.isEstimate && (
+              <span className="text-[11px] text-amber-500">
+                {entity.type === "insider" ? "Estimated from accumulated share activity" : "Range-based estimate"}
+              </span>
+            )}
           </div>
           <div className={cardClass("neutral", { extra: "flex flex-col gap-1 p-4" })}>
             <span className="text-xs text-foreground/50">1Y Return vs S&amp;P 500</span>
@@ -279,6 +355,51 @@ export default function TrackerDetailView({ slug }: { slug: string }) {
               {latestDisclosureDate ? new Date(latestDisclosureDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
             </p>
           </div>
+        </section>
+
+        <section className={cardClass("neutral", { extra: "flex flex-col gap-3 p-4" })}>
+          <h2 className="text-lg font-semibold text-foreground">Recent Trades</h2>
+          <p className="-mt-1 text-xs text-foreground/50">
+            Meaningful buy/sell activity only — excludes awards, tax withholding, option exercises, and other routine
+            non-trading events. See Full Transaction History below for everything.
+          </p>
+          {recentMeaningfulTrades.length === 0 ? (
+            <NoDataYetNote reason="no open-market buy or sell activity has been disclosed yet — only routine non-trading events (awards, tax withholding, etc.) are on record so far." />
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {recentMeaningfulTrades.map((tx) => {
+                const meta = getTypeMeta(tx.transactionType);
+                const date = tx.reportedDate ?? tx.disclosureDate;
+                return (
+                  <div
+                    key={tx.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-foreground/[0.02] px-3 py-2 text-sm"
+                  >
+                    <div className="flex items-center gap-2">
+                      <TransactionTypeBadge type={tx.transactionType} />
+                      <Link href={`/stocks?ticker=${tx.ticker}`} className="font-medium text-foreground hover:underline">
+                        {tx.ticker ?? tx.issuerName ?? "—"}
+                      </Link>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-foreground/50">
+                        {date ? new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                      </span>
+                      <span className={`text-sm font-semibold ${meta.textClass}`}>
+                        {tx.isEstimate ? (
+                          <EstimateRangeBadge low={tx.amountLow} high={tx.amountHigh} />
+                        ) : tx.exactValue ? (
+                          preciseCurrencyFormatter.format(tx.exactValue)
+                        ) : (
+                          <span className="text-foreground/40">—</span>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         {performance.available && performance.series && performance.series.length > 1 && (
@@ -358,7 +479,13 @@ export default function TrackerDetailView({ slug }: { slug: string }) {
         <section className={cardClass("neutral", { extra: "flex flex-col gap-3 p-4" })}>
           <h2 className="text-lg font-semibold text-foreground">Current Holdings</h2>
           {holdings.length === 0 ? (
-            <NoDataYetNote reason="no confirmed current holdings from accumulated disclosures yet." />
+            <NoDataYetNote
+              reason={
+                profile.allTransactions.length > 0
+                  ? "accumulated disclosures so far show only disposals (sells, tax withholding, etc.) with no acquisition captured in the ingested window — this pipeline doesn't backfill a starting position from before ingestion began, so a net-negative running total shows as zero rather than a fabricated negative number."
+                  : "no confirmed current holdings from accumulated disclosures yet."
+              }
+            />
           ) : (
             <>
             <ScrollHint />
@@ -380,7 +507,12 @@ export default function TrackerDetailView({ slug }: { slug: string }) {
                         <Link href={`/stocks?ticker=${h.ticker}`} className="hover:underline">
                           {h.ticker}
                         </Link>
-                        {h.isEstimate && <EstimateRangeBadge low={h.filingValue} high={null} />}
+                        {h.isEstimate &&
+                          (entity.type === "insider" ? (
+                            <ShareBasedEstimateBadge />
+                          ) : (
+                            <EstimateRangeBadge low={h.filingValue} high={null} />
+                          ))}
                       </td>
                       <td className="p-2 text-foreground/70">{h.shares != null ? h.shares.toLocaleString() : "—"}</td>
                       <td className="p-2 text-right text-foreground">{currencyFormatter.format(h.currentValue ?? h.filingValue)}</td>

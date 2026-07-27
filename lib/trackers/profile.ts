@@ -222,7 +222,9 @@ export async function buildTrackerProfile(slug: string, origin: string): Promise
       reason:
         entity.type === "hedge_fund" || entity.type === "investor"
           ? "Not enough quarterly 13F filings ingested yet to compute a return."
-          : "This tracker's return isn't computed from a range/estimate-only feed — insufficient accumulated buy/sell data yet.",
+          : entity.type === "insider"
+            ? "Current holdings and portfolio value above are computed from real accumulated share activity — a return over time needs a historical value series that isn't collected for insiders yet."
+            : "This tracker's return isn't computed from a range/estimate-only feed — insufficient accumulated buy/sell data yet.",
       dividendsExcluded: true,
       methodologyNote: "",
     };

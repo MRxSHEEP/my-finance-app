@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { buildDedupeKey } from "@/lib/trackers/dedupe";
 import { slugify } from "@/lib/trackers/slug";
 import { fetchAndParseForm4, fetchCompanyForm4Filings, type RawForm4Transaction } from "@/lib/trackers/secEdgar";
+import { recomputeShareBasedHoldings } from "@/lib/trackers/holdings";
 
 // A "Company Insiders" tracker is per-company (aggregating every insider's
 // Form 4 filings for that ticker), not per-individual-person — matches
@@ -44,11 +45,26 @@ const FILINGS_PER_COMPANY = 15;
 
 // SEC Form 4 standard transaction codes. Codes not listed fall through to
 // "other" rather than being guessed at.
+//
+// C, D, and I were confirmed missing here live (all three were silently
+// falling into "other", losing their real meaning) by fetching and
+// inspecting actual Form 4 XML for transactions this app had stored as
+// "other": a batch of Alphabet/Airbnb RSU-style vesting events (code C,
+// "Conversion of derivative security" — typically $0/no reported price,
+// since no cash changes hands converting a stock unit into a share); a
+// Bank of America pair of cash-settled-RSU vesting events whose second
+// leg is a real-money disposition back to the company itself (code D,
+// "Sale to the issuer" — economically the same as an open-market sell,
+// just to a different counterparty); and a single Chevron director
+// phantom-stock acquisition (code I, "Discretionary transaction" — a
+// real-value equity-compensation grant, the same category "award"
+// already covers for other codes with a real reported price).
 function classifyTransactionCode(code: string | null): string {
   switch (code) {
     case "P":
       return "buy";
     case "S":
+    case "D":
       return "sell";
     case "M":
     case "X":
@@ -56,6 +72,7 @@ function classifyTransactionCode(code: string | null): string {
     case "G":
       return "gift";
     case "A":
+    case "I":
       return "award";
     case "F":
       // Shares withheld by the company to cover tax on vesting — not a
@@ -63,6 +80,11 @@ function classifyTransactionCode(code: string | null): string {
       // app/api/stock/insiders/route.ts's existing net-sentiment
       // reasoning for the same distinction).
       return "tax_withholding";
+    case "C":
+      // RSU/stock-unit vesting converting into shares — no cash changes
+      // hands, so this is legitimately $0/unpriced in the real SEC data
+      // most of the time (confirmed live), not a parsing failure.
+      return "vesting";
     default:
       return "other";
   }
@@ -158,6 +180,15 @@ async function ingestOneCompany(ticker: string, name: string, cik: string): Prom
 
       if (Date.now() - result.createdAt.getTime() < 5000) transactionsCreated++;
     }
+  }
+
+  // Recomputed once per company from the full accumulated transaction set
+  // (not per-transaction) — idempotent either way, and this pipeline never
+  // touched TrackerHolding at all before, which is why "Current Holdings"/
+  // "Est. Portfolio Value" showed nothing for every insider regardless of
+  // how much real activity had accumulated.
+  if (transactionsCreated > 0) {
+    await recomputeShareBasedHoldings(trackedEntityId);
   }
 
   return {

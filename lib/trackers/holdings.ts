@@ -63,3 +63,86 @@ export async function recomputeRangeBasedHoldings(trackedEntityId: string): Prom
     });
   }
 }
+
+// Form 4 transaction types that reduce an insider's real share count —
+// everything else this pipeline classifies is treated as an acquisition.
+// sell/partial_sell and tax_withholding (shares surrendered to cover tax,
+// by definition a disposal) are unambiguous; gift is the one genuine
+// judgment call — a corporate insider's Form 4 "gift" is far more often
+// them giving shares away (estate/charitable planning) than receiving
+// company stock as a personal gift, so it's grouped here too, best-effort
+// rather than guaranteed correct (Form 4's own acquired/disposed flag
+// isn't captured by this pipeline to disambiguate further).
+const DISPOSAL_TRANSACTION_TYPES = new Set(["sell", "partial_sell", "tax_withholding", "gift"]);
+
+// Recomputes TrackerHolding rows for an insider-type entity from its
+// accumulated TrackerTransaction rows — unlike the range-based congress
+// path above, Form 4 data reports a real share count per transaction, so
+// this accumulates net SHARES directly rather than a dollar midpoint.
+// That distinction matters a lot in practice: RSU vesting/grants/most
+// option exercises are routinely reported at $0 (no cash changes hands),
+// so a dollar-based net would undercount real share accumulation for any
+// insider whose compensation is RSU-heavy — confirmed live, this was
+// exactly why "Current Holdings"/"Est. Portfolio Value" showed 0 for an
+// active insider like Alphabet's despite real accumulated share activity.
+// "other" (an unrecognized transaction code) is deliberately excluded
+// from the sum entirely rather than guessed at in either direction.
+export async function recomputeShareBasedHoldings(trackedEntityId: string): Promise<void> {
+  const transactions = await prisma.trackerTransaction.findMany({
+    where: { trackedEntityId, ticker: { not: null }, shares: { not: null } },
+  });
+
+  const byTicker = new Map<
+    string,
+    { issuerName: string | null; netShares: number; lastKnownPrice: number | null; latestDate: Date | null }
+  >();
+
+  for (const tx of transactions) {
+    if (!tx.ticker || tx.shares == null || tx.transactionType === "other") continue;
+
+    const isDisposal = DISPOSAL_TRANSACTION_TYPES.has(tx.transactionType);
+    const signedShares = isDisposal ? -tx.shares : tx.shares;
+
+    const entry = byTicker.get(tx.ticker) ?? { issuerName: tx.issuerName, netShares: 0, lastKnownPrice: null, latestDate: null };
+    entry.netShares += signedShares;
+    const txDate = tx.reportedDate ?? tx.disclosureDate;
+    // A real (non-zero) price is a better basis for the filing-time value
+    // estimate than a $0 vesting/award price would be — prefer the latest
+    // transaction that actually reported one, not just the latest overall.
+    if (tx.pricePerShare && (!entry.latestDate || !txDate || txDate >= entry.latestDate)) {
+      entry.lastKnownPrice = tx.pricePerShare;
+    }
+    if (txDate && (!entry.latestDate || txDate > entry.latestDate)) entry.latestDate = txDate;
+    if (!entry.issuerName && tx.issuerName) entry.issuerName = tx.issuerName;
+    byTicker.set(tx.ticker, entry);
+  }
+
+  for (const [ticker, entry] of byTicker) {
+    if (entry.netShares <= 0) {
+      await prisma.trackerHolding.deleteMany({ where: { trackedEntityId, ticker } });
+      continue;
+    }
+
+    const estimatedValue = entry.lastKnownPrice != null ? entry.netShares * entry.lastKnownPrice : 0;
+
+    await prisma.trackerHolding.upsert({
+      where: { trackedEntityId_ticker: { trackedEntityId, ticker } },
+      update: {
+        shares: entry.netShares,
+        estimatedValue,
+        issuerName: entry.issuerName,
+        asOfDate: entry.latestDate ?? new Date(),
+        isEstimate: true,
+      },
+      create: {
+        trackedEntityId,
+        ticker,
+        shares: entry.netShares,
+        issuerName: entry.issuerName,
+        estimatedValue,
+        asOfDate: entry.latestDate ?? new Date(),
+        isEstimate: true,
+      },
+    });
+  }
+}

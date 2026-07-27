@@ -7,8 +7,23 @@ import RevealOnScroll from "@/components/RevealOnScroll";
 import { cardClass } from "@/lib/cardStyles";
 import EntityLogo from "@/components/trackers/EntityLogo";
 import PaginationControls from "@/components/Pagination";
+import SectorFilterDropdown, { type SectorFilter } from "@/components/SectorFilterDropdown";
+import { STOCK_CATALOG } from "@/lib/stockCatalog";
 
 const CONGRESS_PAGE_SIZE = 12;
+const INSIDER_PAGE_SIZE = 12;
+
+// Company Insiders entities are named "<ticker>-insiders" (see
+// lib/trackers/insiderForm4.ts) — the ticker is recoverable directly from
+// the slug, same as components/trackers/EntityLogo.tsx's own
+// tickerFromInsiderSlug, so the sector filter can reuse the Stock
+// Catalog's existing ticker->sector taxonomy instead of building a second one.
+function tickerFromInsiderSlug(slug: string): string | null {
+  const match = slug.match(/^(.+)-insiders$/);
+  return match ? match[1].toUpperCase() : null;
+}
+
+const SECTOR_BY_TICKER = new Map(STOCK_CATALOG.map((entry) => [entry.symbol, entry.sector]));
 
 interface TrackerListEntry {
   slug: string;
@@ -79,13 +94,34 @@ interface CategorySectionProps {
   // footer rather than baked-in page state, so this generic section
   // component doesn't need to know anything about pagination itself.
   pagination?: ReactNode;
+  // Rendered above the grid, below the description — only Company
+  // Insiders uses this today (its sector filter).
+  filters?: ReactNode;
+  // Overrides the "hide entirely on zero entities" auto-behavior below.
+  // Needed once a section has its own internal sub-filter (Company
+  // Insiders' sector dropdown): the section should stay visible — filter
+  // control included — when the sub-filter alone narrows it to zero, and
+  // only actually disappear when the *global search* itself matched zero
+  // entities in this category. Sections with no sub-filter never pass
+  // this, so their old auto-hide-on-empty behavior is unchanged.
+  forceShow?: boolean;
 }
 
-function CategorySection({ icon: Icon, title, description, entities, comingSoonReason, disclaimer, pagination }: CategorySectionProps) {
+function CategorySection({
+  icon: Icon,
+  title,
+  description,
+  entities,
+  comingSoonReason,
+  disclaimer,
+  pagination,
+  filters,
+  forceShow,
+}: CategorySectionProps) {
   // A real category hidden entirely by an active search (zero matches)
   // rather than shown with an empty grid — an empty "Hedge Funds" section
   // during a search for "Pelosi" would just read as a bug.
-  if (entities && entities.length === 0) return null;
+  if (!forceShow && entities && entities.length === 0) return null;
 
   return (
     <RevealOnScroll className="flex flex-col gap-3">
@@ -95,8 +131,12 @@ function CategorySection({ icon: Icon, title, description, entities, comingSoonR
       </div>
       <p className="-mt-2 text-sm text-foreground/50">{description}</p>
 
+      {filters && !comingSoonReason && <div className="flex flex-wrap items-center gap-3">{filters}</div>}
+
       {comingSoonReason ? (
         <ComingSoonCard reason={comingSoonReason} />
+      ) : entities && entities.length === 0 ? (
+        <p className="rounded-md bg-foreground/5 px-3 py-3 text-sm text-foreground/50">No matches for this filter.</p>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {entities!.map((entity) => (
@@ -115,6 +155,8 @@ export default function TrackersPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [congressPage, setCongressPage] = useState(1);
+  const [insiderSector, setInsiderSector] = useState<SectorFilter>("All");
+  const [insiderVisibleCount, setInsiderVisibleCount] = useState(INSIDER_PAGE_SIZE);
 
   useEffect(() => {
     let cancelled = false;
@@ -159,6 +201,7 @@ export default function TrackersPage() {
   if (search !== prevSearch) {
     setPrevSearch(search);
     setCongressPage(1);
+    setInsiderVisibleCount(INSIDER_PAGE_SIZE);
   }
 
   const congressTotalPages = Math.max(1, Math.ceil(congressMembers.length / CONGRESS_PAGE_SIZE));
@@ -167,6 +210,24 @@ export default function TrackersPage() {
     (effectiveCongressPage - 1) * CONGRESS_PAGE_SIZE,
     effectiveCongressPage * CONGRESS_PAGE_SIZE
   );
+
+  // Sector filter narrows the list *before* pagination — "Load more"
+  // continues within this filtered set, not the full unfiltered one.
+  const sectorFilteredInsiders =
+    insiderSector === "All"
+      ? insiders
+      : insiders.filter((e) => {
+          const ticker = tickerFromInsiderSlug(e.slug);
+          return ticker ? SECTOR_BY_TICKER.get(ticker) === insiderSector : false;
+        });
+
+  const [prevInsiderSector, setPrevInsiderSector] = useState(insiderSector);
+  if (insiderSector !== prevInsiderSector) {
+    setPrevInsiderSector(insiderSector);
+    setInsiderVisibleCount(INSIDER_PAGE_SIZE);
+  }
+
+  const visibleInsiders = sectorFilteredInsiders.slice(0, insiderVisibleCount);
 
   const isSearching = search.trim().length > 0;
 
@@ -239,7 +300,24 @@ export default function TrackersPage() {
               icon={Building2}
               title="Company Insiders"
               description="Form 4 insider buy/sell activity, sourced directly from SEC EDGAR."
-              entities={insiders}
+              entities={visibleInsiders}
+              forceShow={insiders.length > 0}
+              filters={
+                <SectorFilterDropdown sector={insiderSector} onChange={setInsiderSector} label="Filter by sector" />
+              }
+              pagination={
+                sectorFilteredInsiders.length > insiderVisibleCount ? (
+                  <div className="flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => setInsiderVisibleCount((count) => count + INSIDER_PAGE_SIZE)}
+                      className="rounded-md border border-black/10 px-4 py-2 text-sm font-medium text-foreground/70 transition-colors duration-200 ease-out hover:border-black/25 hover:text-foreground dark:border-white/15 dark:hover:border-white/30"
+                    >
+                      Load more ({sectorFilteredInsiders.length - insiderVisibleCount} more)
+                    </button>
+                  </div>
+                ) : undefined
+              }
             />
 
             {!isSearching && (
