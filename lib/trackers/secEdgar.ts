@@ -1,4 +1,5 @@
 import { throttledEdgarCall } from "@/lib/trackers/edgarThrottle";
+import { decodeHtmlEntities } from "@/lib/trackers/htmlEntities";
 
 // SEC EDGAR requires a descriptive User-Agent identifying the requester
 // (their fair-access policy — no API key, but an unidentified/generic
@@ -144,14 +145,16 @@ function extractTag(block: string, tag: string): string | null {
   // extraction matches only the whitespace before that nested tag and
   // silently returns empty — check for the nested <value> first.
   const nestedValueMatch = inner.match(/<(?:\w+:)?value>([^<]*)<\/(?:\w+:)?value>/i);
-  if (nestedValueMatch) return nestedValueMatch[1].trim();
+  if (nestedValueMatch) return decodeHtmlEntities(nestedValueMatch[1].trim());
 
   // No nested <value> — either a genuinely flat tag (13F's own fields,
   // and Form 4's transactionCode/transactionAcquiredDisposedCode-style
   // enums), or a field standing in with only a footnote and no value at
   // all, which correctly falls through to null below rather than
-  // returning stray whitespace/tag remnants.
-  const directText = inner.replace(/<[^>]*>/g, "").trim();
+  // returning stray whitespace/tag remnants. Decoded because XML validly
+  // (and, confirmed live, actually does) escape a bare "&" in issuer names
+  // like "Johnson & Johnson" as `&amp;`.
+  const directText = decodeHtmlEntities(inner.replace(/<[^>]*>/g, "").trim());
   return directText || null;
 }
 

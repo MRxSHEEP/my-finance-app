@@ -1,6 +1,7 @@
 import { throttledHouseClerkCall } from "@/lib/trackers/houseClerkThrottle";
 import { parsePtrPdf } from "@/lib/trackers/ptrPdfParser";
 import { persistCongressFiling, findAlreadyParsedFilingIds } from "@/lib/trackers/congressFilingIngest";
+import { decodeHtmlEntities } from "@/lib/trackers/htmlEntities";
 
 // A descriptive User-Agent identifying this app + a contact point — the
 // House Clerk site publishes no fair-access policy the way SEC EDGAR does
@@ -18,14 +19,24 @@ export interface HouseFilingRef {
 }
 
 // The search results table prints names as "Lastname, Hon.. Firstname
-// Suffix." (confirmed live) — reformatted into a plain "Firstname Lastname"
-// so it slugifies/displays the same way the FMP-sourced congress entities
-// (lib/trackers/congress.ts) already do, rather than introducing a second,
-// visually inconsistent naming convention for the same kind of entity.
+// Suffix." on some rows (confirmed live) — reformatted into a plain
+// "Firstname Lastname" so it slugifies/displays the same way the
+// FMP-sourced congress entities (lib/trackers/congress.ts) already do,
+// rather than introducing a second, visually inconsistent naming
+// convention for the same kind of entity. Other rows (confirmed live, a
+// large fraction of them) instead print the name with no comma at all as
+// "Hon. Firstname Lastname" — the comma-based branch below never touches
+// those, so the "Hon." prefix has to be stripped unconditionally on
+// whichever branch actually runs, not just from the post-comma remainder.
+// Decodes HTML entities first — the raw regex extraction in
+// parseSearchResultsHtml below pulls this straight out of the page's
+// markup, entities and all.
 export function normalizeHouseName(raw: string): string {
-  const [last, rest] = raw.split(",").map((s) => s.trim());
-  if (!rest) return raw.trim().replace(/\s+/g, " ");
-  const first = rest.replace(/^Hon\.+\s*/i, "").trim();
+  const decoded = decodeHtmlEntities(raw);
+  const stripHonorific = (s: string) => s.replace(/^Hon\.+\s*/i, "").trim();
+  const [last, rest] = decoded.split(",").map((s) => s.trim());
+  if (!rest) return stripHonorific(decoded).replace(/\s+/g, " ").trim();
+  const first = stripHonorific(rest);
   return `${first} ${last}`.replace(/\s+/g, " ").trim();
 }
 
@@ -54,7 +65,7 @@ function parseSearchResultsHtml(html: string): HouseFilingRef[] {
     refs.push({
       filingId,
       filerName: normalizeHouseName(nameMatch[1]),
-      office: officeMatch?.[1]?.trim() ?? "",
+      office: decodeHtmlEntities(officeMatch?.[1]?.trim() ?? ""),
       filingYear: yearMatch?.[1]?.trim() ?? "",
       pdfUrl: `${BASE_URL}/${hrefMatch[1]}`,
     });

@@ -49,7 +49,7 @@ export async function persistCongressFiling(params: PersistFilingParams): Promis
 
   const entity = await prisma.trackedEntity.upsert({
     where: { slug },
-    update: { title: params.chamberTitle },
+    update: { name: params.filerName, title: params.chamberTitle },
     create: { slug, type: "congress", name: params.filerName, title: params.chamberTitle },
   });
 

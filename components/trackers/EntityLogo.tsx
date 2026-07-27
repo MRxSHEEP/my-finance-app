@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Building2, User } from "lucide-react";
+import { Building2, Landmark, User } from "lucide-react";
 import { getTrackerLogoUrl } from "@/lib/trackers/companyLogos";
 import { getInvestorPhoto } from "@/lib/trackers/investorPhotos";
+import { getCongressPhotoUrl } from "@/lib/trackers/congressPhotos";
 import { fetchStockLogo } from "@/lib/stockLogoCache";
 
 const TYPE_ICON: Record<string, typeof Building2> = {
   hedge_fund: Building2,
   investor: User,
   insider: Building2,
+  congress: Landmark,
 };
 
 // Company Insiders trackers are named "<ticker>-insiders" (see
@@ -29,6 +31,10 @@ function tickerFromInsiderSlug(slug: string): string | null {
 interface EntityLogoProps {
   slug: string;
   type: string;
+  // Only needed for type === "congress" — the official headshot lookup
+  // is by name (see lib/trackers/congressPhotos.ts), since neither
+  // congress ingestion pipeline captures a Bioguide ID of its own.
+  name?: string;
   size?: number;
   className?: string;
 }
@@ -53,7 +59,7 @@ const GOOGLE_FALLBACK_SIZE = 16;
 // required CC attribution is exposed via the native `title` tooltip here;
 // TrackerDetailView additionally renders a visible credit line of its own
 // where there's room for one.
-export default function EntityLogo({ slug, type, size = 40, className = "" }: EntityLogoProps) {
+export default function EntityLogo({ slug, type, name, size = 40, className = "" }: EntityLogoProps) {
   const [insiderLogoUrl, setInsiderLogoUrl] = useState<string | null>(null);
   const [imgFailed, setImgFailed] = useState(false);
   const Icon = TYPE_ICON[type] ?? Building2;
@@ -80,9 +86,11 @@ export default function EntityLogo({ slug, type, size = 40, className = "" }: En
   }, [ticker]);
 
   const photo = getInvestorPhoto(slug, type);
-  const domainLogoUrl = photo ? null : getTrackerLogoUrl(slug);
-  const imageSrc = photo?.url ?? domainLogoUrl ?? insiderLogoUrl;
-  const isDomainFavicon = !photo && domainLogoUrl != null;
+  const congressPhotoUrl = !photo && type === "congress" && name ? getCongressPhotoUrl(name) : null;
+  const domainLogoUrl = photo || congressPhotoUrl ? null : getTrackerLogoUrl(slug);
+  const imageSrc = photo?.url ?? congressPhotoUrl ?? domainLogoUrl ?? insiderLogoUrl;
+  const isPersonPhoto = photo != null || congressPhotoUrl != null;
+  const isDomainFavicon = !isPersonPhoto && domainLogoUrl != null;
 
   if (imageSrc && !imgFailed) {
     return (
@@ -93,7 +101,7 @@ export default function EntityLogo({ slug, type, size = 40, className = "" }: En
         title={photo ? `Photo: ${photo.photographer} — ${photo.license}` : undefined}
         width={size}
         height={size}
-        className={`shrink-0 rounded-full ${photo ? "object-cover" : "bg-white object-contain p-1.5"} ${className}`}
+        className={`shrink-0 rounded-full ${isPersonPhoto ? "object-cover" : "bg-white object-contain p-1.5"} ${className}`}
         style={{ width: size, height: size }}
         onError={() => setImgFailed(true)}
         onLoad={(event) => {

@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Building2, Clock, Landmark, Search, Sparkles, User } from "lucide-react";
 import RevealOnScroll from "@/components/RevealOnScroll";
 import { cardClass } from "@/lib/cardStyles";
 import EntityLogo from "@/components/trackers/EntityLogo";
+import PaginationControls from "@/components/Pagination";
+
+const CONGRESS_PAGE_SIZE = 12;
 
 interface TrackerListEntry {
   slug: string;
@@ -35,7 +38,7 @@ function EntityCard({ entity }: { entity: TrackerListEntry }) {
       href={`/trackers/${typeUrlSegment(entity.type)}/${entity.slug}`}
       className={cardClass("neutral", { interactive: true, extra: "flex items-center gap-3 p-4" })}
     >
-      <EntityLogo slug={entity.slug} type={entity.type} size={40} />
+      <EntityLogo slug={entity.slug} type={entity.type} name={entity.name} size={40} />
       <div className="min-w-0 flex-1">
         <p className="truncate font-semibold text-foreground">{entity.name}</p>
         {entity.title && <p className="truncate text-xs text-foreground/60">{entity.title}</p>}
@@ -71,9 +74,14 @@ interface CategorySectionProps {
   // is more legally/politically sensitive, using this app's existing
   // disclaimer phrasing (see app/page.tsx's SPY Drivers section).
   disclaimer?: string;
+  // Only Members of Congress is large enough to need this (144 real
+  // members vs. single digits for the other three sections) — a rendered
+  // footer rather than baked-in page state, so this generic section
+  // component doesn't need to know anything about pagination itself.
+  pagination?: ReactNode;
 }
 
-function CategorySection({ icon: Icon, title, description, entities, comingSoonReason, disclaimer }: CategorySectionProps) {
+function CategorySection({ icon: Icon, title, description, entities, comingSoonReason, disclaimer, pagination }: CategorySectionProps) {
   // A real category hidden entirely by an active search (zero matches)
   // rather than shown with an empty grid — an empty "Hedge Funds" section
   // during a search for "Pelosi" would just read as a bug.
@@ -96,6 +104,7 @@ function CategorySection({ icon: Icon, title, description, entities, comingSoonR
           ))}
         </div>
       )}
+      {pagination && !comingSoonReason && <div className="pt-1">{pagination}</div>}
       {disclaimer && !comingSoonReason && <p className="text-xs text-foreground/40">{disclaimer}</p>}
     </RevealOnScroll>
   );
@@ -105,6 +114,7 @@ export default function TrackersPage() {
   const [entities, setEntities] = useState<TrackerListEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [congressPage, setCongressPage] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -140,6 +150,23 @@ export default function TrackersPage() {
   const hedgeFunds = filtered.filter((e) => e.type === "hedge_fund");
   const investors = filtered.filter((e) => e.type === "investor");
   const insiders = filtered.filter((e) => e.type === "insider");
+
+  // Reset to page 1 whenever the search term changes — adjusted during
+  // render (React's own recommended pattern for "reset state when a prop
+  // changes") rather than in an effect, which would cost an extra render
+  // for no benefit here.
+  const [prevSearch, setPrevSearch] = useState(search);
+  if (search !== prevSearch) {
+    setPrevSearch(search);
+    setCongressPage(1);
+  }
+
+  const congressTotalPages = Math.max(1, Math.ceil(congressMembers.length / CONGRESS_PAGE_SIZE));
+  const effectiveCongressPage = Math.min(congressPage, congressTotalPages);
+  const paginatedCongressMembers = congressMembers.slice(
+    (effectiveCongressPage - 1) * CONGRESS_PAGE_SIZE,
+    effectiveCongressPage * CONGRESS_PAGE_SIZE
+  );
 
   const isSearching = search.trim().length > 0;
 
@@ -185,8 +212,13 @@ export default function TrackersPage() {
               icon={Landmark}
               title="Members of Congress"
               description="Periodic Transaction Reports from the House Clerk and Senate eFD systems."
-              entities={congressMembers}
+              entities={paginatedCongressMembers}
               disclaimer="For informational purposes only — not investment advice."
+              pagination={
+                congressTotalPages > 1 ? (
+                  <PaginationControls page={effectiveCongressPage} totalPages={congressTotalPages} onPageChange={setCongressPage} />
+                ) : undefined
+              }
             />
 
             <CategorySection

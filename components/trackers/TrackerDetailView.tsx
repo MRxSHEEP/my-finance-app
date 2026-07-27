@@ -216,7 +216,7 @@ export default function TrackerDetailView({ slug }: { slug: string }) {
 
         <div className="flex items-center gap-4">
           <div className="flex flex-col items-center gap-1">
-            <EntityLogo slug={entity.slug} type={entity.type} size={64} />
+            <EntityLogo slug={entity.slug} type={entity.type} name={entity.name} size={64} />
             {investorPhoto && (
               <a
                 href={investorPhoto.sourceUrl}
