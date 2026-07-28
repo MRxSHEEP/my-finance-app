@@ -18,6 +18,8 @@ import {
   Info,
   BarChart3,
   FileBarChart2,
+  PieChart,
+  Scale,
   Menu,
   ChevronDown,
   type LucideIcon,
@@ -70,13 +72,28 @@ const NAV_ITEMS: NavEntry[] = [
   { label: "Trackers", href: "/trackers", icon: UserSearch },
   { label: "Signals", href: "/signals", icon: BarChart3 },
   { label: "Simulated Portfolio", href: "/portfolio", icon: Wallet },
-  { label: "Compliance", href: "/compliance", icon: ShieldCheck },
-  // No role check here — this item is visible to every visitor (same as
-  // every other NAV_ITEMS entry), it just leads to a page that itself
-  // shows the "belongs to no org" / "no Reporting grant" states (see
-  // app/reporting/page.tsx) for anyone who doesn't yet have access,
-  // exactly like clicking Compliance without a membership already does.
-  { label: "Reporting", href: "/reporting", icon: FileBarChart2 },
+  {
+    label: "Advisor Tools",
+    // Reuses Compliance's own icon for the group header, same convention
+    // as "Equities" above (its group icon duplicates its first child's,
+    // TrendingUp/Stocks) rather than picking a separate, neutral symbol.
+    icon: ShieldCheck,
+    // No role/org check on any of these four — same as before this group
+    // existed, every one of them was already visible to every visitor
+    // regardless of session or org membership, with the page itself (not
+    // the nav) showing "you don't belong to an org yet" / "no grant"
+    // states (see app/reporting/page.tsx, app/compliance/page.tsx). This
+    // component has no session/org-membership awareness of its own today,
+    // and adding one just to hide a nav group would be a new, inconsistent
+    // pattern next to every other still-unconditional item here — so the
+    // group itself stays unconditional too, consistent with its children.
+    children: [
+      { label: "RIA Compliance", href: "/compliance", icon: ShieldCheck },
+      { label: "Reporting", href: "/reporting", icon: FileBarChart2 },
+      { label: "Model Portfolios", href: "/portfolios/models", icon: PieChart },
+      { label: "Peer Benchmarking", href: "/benchmarking", icon: Scale },
+    ],
+  },
   { label: "About", href: "/about", icon: Info },
 ];
 

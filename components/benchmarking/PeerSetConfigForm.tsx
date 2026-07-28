@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { cardClass } from "@/lib/cardStyles";
+import TickerAutocompleteInput from "@/components/TickerAutocompleteInput";
 
 const MAX_PEERS = 6;
 
@@ -64,25 +65,18 @@ export default function PeerSetConfigForm({ initialOwnCompanyTicker, initialPeer
     <form onSubmit={handleSubmit} className={cardClass("indigo", { extra: "flex w-full max-w-2xl flex-col gap-4 p-4" })}>
       <h2 className="text-lg font-semibold text-foreground">Configure Peer Set</h2>
 
-      <label className="flex flex-col gap-1">
+      <label className="flex max-w-xs flex-col gap-1">
         <span className="text-sm font-medium text-foreground">Your company&apos;s ticker (optional)</span>
-        <input
-          type="text"
-          value={ownCompanyTicker}
-          onChange={(e) => setOwnCompanyTicker(e.target.value.toUpperCase())}
-          placeholder="e.g. AAPL"
-          className="w-full max-w-xs rounded-md border border-black/10 bg-transparent px-3 py-2 text-sm outline-none focus:border-blue-400/50 dark:border-white/15 dark:focus:border-blue-400/50"
-        />
+        <TickerAutocompleteInput value={ownCompanyTicker} onChange={setOwnCompanyTicker} placeholder="e.g. AAPL" />
       </label>
 
       <div className="flex flex-col gap-2">
         <span className="text-sm font-medium text-foreground">Peer tickers (up to {MAX_PEERS})</span>
         {peerRows.map((row, i) => (
           <div key={i} className="flex items-center gap-2">
-            <input
-              type="text"
+            <TickerAutocompleteInput
               value={row}
-              onChange={(e) => updateRow(i, e.target.value)}
+              onChange={(value) => updateRow(i, value)}
               placeholder="Ticker"
               className="w-40 rounded-md border border-black/10 bg-transparent px-3 py-2 text-sm outline-none dark:border-white/15"
             />
