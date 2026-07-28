@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import ModelPortfoliosWorkspace from "@/components/modelPortfolios/ModelPortfoliosWorkspace";
+import ModelPortfoliosWalkthrough from "@/components/modelPortfolios/preview/ModelPortfoliosWalkthrough";
 
 interface OrgState {
   organization: { id: string; name: string } | null;
@@ -51,12 +52,18 @@ export default function ModelPortfoliosPage() {
 
   if (status !== "authenticated") {
     return (
-      <main className="flex flex-1 flex-col items-center gap-4 p-8 pt-16 text-center">
-        <h1 className="text-3xl font-bold text-foreground">Model Portfolios</h1>
-        <p className="text-foreground/60">Sign in to build model portfolios.</p>
-        <Link href="/login" className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90">
-          Sign In
-        </Link>
+      <main className="flex flex-1 flex-col items-center gap-6 p-8 pt-16 text-center">
+        <div className="flex flex-col items-center gap-1">
+          <h1 className="text-3xl font-bold text-foreground">Model Portfolios</h1>
+          <p className="text-foreground/60">See how firm-wide target allocations, performance tracking, and client share links work before you sign in.</p>
+        </div>
+        <ModelPortfoliosWalkthrough />
+        <p className="text-sm text-foreground/60">
+          Already have an account?{" "}
+          <Link href="/login" className="font-medium text-foreground hover:underline">
+            Sign in
+          </Link>
+        </p>
       </main>
     );
   }
