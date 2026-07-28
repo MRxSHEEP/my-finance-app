@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Info,
   BarChart3,
+  FileBarChart2,
   Menu,
   ChevronDown,
   type LucideIcon,
@@ -70,6 +71,12 @@ const NAV_ITEMS: NavEntry[] = [
   { label: "Signals", href: "/signals", icon: BarChart3 },
   { label: "Simulated Portfolio", href: "/portfolio", icon: Wallet },
   { label: "Compliance", href: "/compliance", icon: ShieldCheck },
+  // No role check here — this item is visible to every visitor (same as
+  // every other NAV_ITEMS entry), it just leads to a page that itself
+  // shows the "belongs to no org" / "no Reporting grant" states (see
+  // app/reporting/page.tsx) for anyone who doesn't yet have access,
+  // exactly like clicking Compliance without a membership already does.
+  { label: "Reporting", href: "/reporting", icon: FileBarChart2 },
   { label: "About", href: "/about", icon: Info },
 ];
 
