@@ -52,6 +52,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       generatedAt={new Date()}
       calculatorSections={calculatorSections}
       portfolioSection={portfolioSection}
+      narrativeCommentary={report.narrativeCommentary}
     />
   );
 

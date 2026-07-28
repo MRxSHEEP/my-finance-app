@@ -27,6 +27,7 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: "row", paddingVertical: 4, borderTopWidth: 1, borderTopColor: "#333333", marginTop: 2 },
   totalLabel: { flex: 2, fontWeight: 700 },
   totalValue: { flex: 1, textAlign: "right", fontWeight: 700 },
+  narrativeBody: { fontSize: 9.5, lineHeight: 1.5, color: "#333333", marginBottom: 6 },
 });
 
 export interface ReportCalculatorSection {
@@ -53,6 +54,11 @@ interface ReportDocumentProps {
   generatedAt: Date;
   calculatorSections: ReportCalculatorSection[];
   portfolioSection: ReportPortfolioSection | null;
+  // The advisor's own approved/edited text — never AI text that reached
+  // this document without a human confirming it first (see
+  // app/api/reporting/reports/route.ts's POST). Rendered with a permanent
+  // disclosure line, not just flagged in the in-app editing screen.
+  narrativeCommentary: string | null;
 }
 
 export default function ReportDocument({
@@ -64,6 +70,7 @@ export default function ReportDocument({
   generatedAt,
   calculatorSections,
   portfolioSection,
+  narrativeCommentary,
 }: ReportDocumentProps) {
   const accent = brandColor ?? DEFAULT_BRAND_COLOR;
 
@@ -141,6 +148,16 @@ export default function ReportDocument({
               <Text style={styles.totalLabel}>{portfolioSection.totalLabel}</Text>
               <Text style={styles.totalValue}>{portfolioSection.totalValue}</Text>
             </View>
+          </View>
+        )}
+
+        {narrativeCommentary && (
+          <View>
+            <Text style={styles.sectionHeading}>Portfolio Commentary</Text>
+            <Text style={styles.narrativeBody}>{narrativeCommentary}</Text>
+            <Text style={styles.disclaimer}>
+              This commentary was drafted with AI assistance and reviewed and approved by your advisor before inclusion in this report.
+            </Text>
           </View>
         )}
       </Page>

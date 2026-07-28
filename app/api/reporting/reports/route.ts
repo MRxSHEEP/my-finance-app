@@ -69,6 +69,12 @@ export async function POST(request: NextRequest) {
   const portfolioSource = body?.portfolioSource;
   const simulatedPortfolioId = typeof body?.simulatedPortfolioId === "string" ? body.simulatedPortfolioId : null;
   const manualHoldings = Array.isArray(body?.manualHoldings) ? body.manualHoldings : null;
+  // The advisor's own approved/edited text from the AI-draft flow (or
+  // hand-typed from scratch) — frozen here exactly as submitted, same as
+  // manualHoldings below. Never generated or altered by this route itself;
+  // see app/api/reporting/reports/draft-narrative/route.ts for the
+  // separate, non-persisting draft step this comes from.
+  const narrativeCommentary = typeof body?.narrativeCommentary === "string" && body.narrativeCommentary.trim() ? body.narrativeCommentary.trim() : null;
 
   if (!clientName) return NextResponse.json({ error: "Client name is required" }, { status: 400 });
   if (!calculators || calculators.length === 0) {
@@ -116,6 +122,7 @@ export async function POST(request: NextRequest) {
       portfolioSource,
       simulatedPortfolioId: portfolioSource === "simulated" ? simulatedPortfolioId : null,
       manualHoldings: portfolioSource === "manual" ? manualHoldings : undefined,
+      narrativeCommentary,
     },
   });
 

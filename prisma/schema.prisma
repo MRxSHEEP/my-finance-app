@@ -685,7 +685,12 @@ model Report {
   // === "manual" — unlike the simulated path, these ARE frozen exactly as
   // typed at creation time.
   manualHoldings Json?
-  createdAt      DateTime @default(now())
+  // Advisor-approved AI-drafted portfolio commentary, frozen exactly as
+  // submitted at creation time (same reasoning as manualHoldings above) —
+  // never regenerated on later PDF views. Null when the advisor discarded
+  // the draft or never requested one; see lib/reportNarrative/generate.ts.
+  narrativeCommentary String? @db.Text
+  createdAt           DateTime @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Sparkles } from "lucide-react";
 import { cardClass } from "@/lib/cardStyles";
 import DcfBlock, { toDcfInputs } from "@/components/reporting/blocks/DcfBlock";
 import DcaBlock, { toDcaInputs } from "@/components/reporting/blocks/DcaBlock";
@@ -36,8 +37,43 @@ export default function ReportGeneratorForm({ onCreated }: { onCreated: () => vo
   const [portfolioSource, setPortfolioSource] = useState<PortfolioSource>("none");
   const [simulatedPortfolioId, setSimulatedPortfolioId] = useState<string | null>(null);
   const [manualHoldings, setManualHoldings] = useState<ManualHolding[]>([]);
+  const [narrative, setNarrative] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const canDraftNarrative =
+    portfolioSource !== "none" &&
+    clientName.trim().length > 0 &&
+    (portfolioSource === "simulated" ? simulatedPortfolioId !== null : manualHoldings.length > 0);
+
+  async function handleDraftNarrative() {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const res = await fetch("/api/reporting/reports/draft-narrative", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientName: clientName.trim(),
+          portfolioSource,
+          simulatedPortfolioId: portfolioSource === "simulated" ? simulatedPortfolioId : undefined,
+          manualHoldings: portfolioSource === "manual" ? manualHoldings : undefined,
+        }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body?.narrative) {
+        setAiError(body?.error ?? "AI commentary is unavailable right now.");
+        return;
+      }
+      setNarrative(body.narrative);
+    } catch {
+      setAiError("AI commentary is unavailable right now.");
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   function toggleType(type: CalculatorType) {
     setEnabledTypes((prev) => {
@@ -83,6 +119,7 @@ export default function ReportGeneratorForm({ onCreated }: { onCreated: () => vo
           portfolioSource,
           simulatedPortfolioId: portfolioSource === "simulated" ? simulatedPortfolioId : undefined,
           manualHoldings: portfolioSource === "manual" ? manualHoldings : undefined,
+          narrativeCommentary: narrative.trim() || undefined,
         }),
       });
       const body = await res.json().catch(() => null);
@@ -94,6 +131,8 @@ export default function ReportGeneratorForm({ onCreated }: { onCreated: () => vo
       setPortfolioSource("none");
       setSimulatedPortfolioId(null);
       setManualHoldings([]);
+      setNarrative("");
+      setAiError(null);
       onCreated();
     } finally {
       setSubmitting(false);
@@ -177,6 +216,54 @@ export default function ReportGeneratorForm({ onCreated }: { onCreated: () => vo
           <ManualHoldingsEditor holdings={manualHoldings} onChange={setManualHoldings} />
         )}
       </div>
+
+      {portfolioSource !== "none" && (
+        <div className={cardClass("neutral", { extra: "flex flex-col gap-3 p-4" })}>
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            <Sparkles size={15} className="text-indigo-400" />
+            AI Commentary (optional)
+          </h3>
+
+          {portfolioSource === "manual" && (
+            <p className="text-xs text-foreground/50">
+              Manual holdings have no linked market data, so a draft here will describe composition and concentration only.
+            </p>
+          )}
+
+          <button
+            type="button"
+            onClick={handleDraftNarrative}
+            disabled={!canDraftNarrative || aiLoading}
+            className="self-start rounded-md border border-indigo-400/30 px-3 py-1.5 text-xs font-medium text-indigo-400 transition-colors hover:bg-indigo-400/10 disabled:opacity-50"
+          >
+            {aiLoading ? "Drafting…" : narrative ? "Regenerate draft" : "Draft AI Commentary"}
+          </button>
+
+          {aiError && <p className="text-sm text-red-500">{aiError}</p>}
+
+          <label className="flex flex-col gap-1">
+            <span className="text-sm font-medium text-foreground">Narrative (editable)</span>
+            <textarea
+              value={narrative}
+              onChange={(e) => setNarrative(e.target.value)}
+              rows={5}
+              placeholder="Click “Draft AI Commentary” to generate a suggested narrative, or write your own here."
+              className="w-full rounded-md border border-black/10 bg-transparent px-3 py-2 text-sm outline-none transition-colors duration-200 ease-out focus:border-blue-400/50 dark:border-white/15 dark:focus:border-blue-400/50"
+            />
+          </label>
+
+          {narrative && (
+            <button type="button" onClick={() => setNarrative("")} className="self-start text-xs text-foreground/50 hover:text-foreground hover:underline">
+              Discard draft
+            </button>
+          )}
+
+          <p className="text-[10px] italic text-foreground/40">
+            AI-generated draft for review only. Edit or discard as you see fit — only the text left here when you click &quot;Generate Report&quot; below is
+            included, and it will appear in the delivered PDF exactly as written, with a disclosure noting it was AI-drafted and advisor-reviewed.
+          </p>
+        </div>
+      )}
 
       {error && <p className="text-sm text-red-500">{error}</p>}
 
