@@ -81,11 +81,11 @@ function PendingRequestsTab() {
     };
   }, [refreshToken]);
 
-  async function handleDecide(id: string, decision: "approved" | "denied") {
+  async function handleDecide(id: string, decision: "approved" | "denied", decisionNotes: string | null) {
     await fetch(`/api/compliance/preclearance/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ decision }),
+      body: JSON.stringify({ decision, decisionNotes }),
     });
     setRefreshToken((t) => t + 1);
   }

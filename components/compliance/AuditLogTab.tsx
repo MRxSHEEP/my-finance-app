@@ -76,6 +76,7 @@ export default function AuditLogTab() {
           <option value="preclearance_denied">Pre-clearance denied</option>
           <option value="flag_created">Flag created</option>
           <option value="flag_reviewed">Flag reviewed</option>
+          <option value="ai_review_requested">AI review requested</option>
           <option value="invite_created">Invite created</option>
           <option value="member_joined">Member joined</option>
           <option value="member_role_changed">Member role changed</option>

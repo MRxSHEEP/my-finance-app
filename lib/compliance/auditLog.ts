@@ -9,6 +9,7 @@ export type ComplianceAuditAction =
   | "preclearance_denied"
   | "flag_created"
   | "flag_reviewed"
+  | "ai_review_requested"
   | "invite_created"
   | "member_joined"
   | "member_role_changed"

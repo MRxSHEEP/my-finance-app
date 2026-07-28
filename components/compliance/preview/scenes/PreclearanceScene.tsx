@@ -24,7 +24,7 @@ export default function PreclearanceScene() {
     return () => clearTimeout(timer);
   }, []);
 
-  async function handleDecide(_id: string, decision: "approved" | "denied") {
+  async function handleDecide(_id: string, decision: "approved" | "denied", _decisionNotes: string | null) {
     setStatus(decision);
   }
 
