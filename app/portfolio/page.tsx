@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import SimulatedPortfolioSection from "@/components/portfolio/SimulatedPortfolioSection";
+import SimulatedPortfolioWalkthrough from "@/components/portfolio/preview/SimulatedPortfolioWalkthrough";
 
 // The manual real-holdings tracker previously lived behind a Real/Simulated
 // toggle on this page — it's been relocated to app/portfolio/real (kept
@@ -23,15 +24,18 @@ export default function PortfolioPage() {
 
   if (status !== "authenticated") {
     return (
-      <main className="flex flex-1 flex-col items-center gap-4 p-8 pt-16 text-center">
-        <h1 className="text-3xl font-bold text-foreground">Simulated Portfolio</h1>
-        <p className="text-foreground/60">Sign in to start a simulated portfolio.</p>
-        <Link
-          href="/login"
-          className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90"
-        >
-          Sign In
-        </Link>
+      <main className="flex flex-1 flex-col items-center gap-6 p-8 pt-16 text-center">
+        <div className="flex flex-col items-center gap-1">
+          <h1 className="text-3xl font-bold text-foreground">Simulated Portfolio</h1>
+          <p className="text-foreground/60">See how paper trading, performance tracking, and multi-asset holdings work before you sign in.</p>
+        </div>
+        <SimulatedPortfolioWalkthrough />
+        <p className="text-sm text-foreground/60">
+          Already have an account?{" "}
+          <Link href="/login" className="font-medium text-foreground hover:underline">
+            Sign in
+          </Link>
+        </p>
       </main>
     );
   }
