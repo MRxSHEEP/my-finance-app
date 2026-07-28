@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import BenchmarkingWorkspace from "@/components/benchmarking/BenchmarkingWorkspace";
+import BenchmarkingWalkthrough from "@/components/benchmarking/preview/BenchmarkingWalkthrough";
 
 interface OrganizationInfo {
   id: string;
@@ -58,12 +59,18 @@ export default function BenchmarkingPage() {
 
   if (status !== "authenticated") {
     return (
-      <main className="flex flex-1 flex-col items-center gap-4 p-8 pt-16 text-center">
-        <h1 className="text-3xl font-bold text-foreground">Peer Benchmarking</h1>
-        <p className="text-foreground/60">Sign in to view your firm&apos;s benchmarking dashboard.</p>
-        <Link href="/login" className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90">
-          Sign In
-        </Link>
+      <main className="flex flex-1 flex-col items-center gap-6 p-8 pt-16 text-center">
+        <div className="flex flex-col items-center gap-1">
+          <h1 className="text-3xl font-bold text-foreground">Peer Benchmarking</h1>
+          <p className="text-foreground/60">See how peer comparisons, current metrics, and trend tracking work before you sign in.</p>
+        </div>
+        <BenchmarkingWalkthrough />
+        <p className="text-sm text-foreground/60">
+          Already have an account?{" "}
+          <Link href="/login" className="font-medium text-foreground hover:underline">
+            Sign in
+          </Link>
+        </p>
       </main>
     );
   }
