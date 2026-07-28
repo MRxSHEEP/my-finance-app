@@ -12,10 +12,20 @@ import AuditLogScene from "@/components/compliance/preview/scenes/AuditLogScene"
 // Bumped from the original 5500ms alongside the caption rewrite below —
 // the new captions are real explanations (1-2 full sentences) rather than
 // short action labels, and need a bit more time to read comfortably
-// alongside the scene itself without pacing feeling rushed.
+// alongside the scene itself without pacing feeling rushed. Per-scene
+// `durationMs` (see "preclearance" below) overrides this default for a
+// scene with meaningfully more to show/read than the others.
 const SCENE_DURATION_MS = 6500;
 
-const SCENES = [
+interface SceneDef {
+  key: string;
+  label: string;
+  caption: string;
+  Component: () => React.JSX.Element;
+  durationMs?: number;
+}
+
+const SCENES: SceneDef[] = [
   {
     key: "restricted",
     label: "Restricted list",
@@ -41,8 +51,13 @@ const SCENES = [
     key: "preclearance",
     label: "Pre-clearance",
     caption:
-      "High-risk trades can require sign-off before they're ever placed — stopping a problem trade, not just logging it afterward. Try clicking Approve or Deny yourself.",
+      "High-risk trades require sign-off before they're placed — now with an AI-drafted flag, rationale, and suggested note that saves officers real review time, without ever deciding for them. Try clicking Approve or Deny yourself.",
     Component: PreclearanceScene,
+    // This scene now also plays out the AI-Assisted Review step (collapsed
+    // -> expanded -> analyzing -> result -> note applied -> approved) on
+    // top of its original approve/deny beat — meaningfully more to read
+    // than every other scene, hence the longer-than-default runtime.
+    durationMs: 9500,
   },
   {
     key: "audit",
@@ -51,7 +66,7 @@ const SCENES = [
       "Every approval, flag, and list change lands in one immutable record — ready to hand a regulator without weeks of reconstruction.",
     Component: AuditLogScene,
   },
-] as const;
+];
 
 export default function ComplianceWalkthrough() {
   const [index, setIndex] = useState(0);
@@ -63,7 +78,7 @@ export default function ComplianceWalkthrough() {
 
   useEffect(() => {
     if (!playing) return;
-    const timer = setTimeout(() => advance(1), SCENE_DURATION_MS);
+    const timer = setTimeout(() => advance(1), SCENES[index].durationMs ?? SCENE_DURATION_MS);
     return () => clearTimeout(timer);
   }, [index, playing, advance]);
 

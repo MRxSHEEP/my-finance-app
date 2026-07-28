@@ -43,6 +43,19 @@ export const DEMO_PRECLEARANCE_REQUEST = {
   user: { name: "Priya Chandra", email: "priya@acmecapital.example" },
 };
 
+// Compliance Copilot's AI-Assisted Review draft for the pre-clearance
+// request above — invented specifically for this scene (NRDA isn't one of
+// DEMO_RESTRICTED_ENTRIES; this is its own self-contained fictional flag
+// reason), same as DEMO_FLAG's insider narrative is self-contained rather
+// than cross-checked against every other scene's data.
+export const DEMO_AI_REVIEW = {
+  flag: true,
+  rationale:
+    "NRDA was added to the firm's restricted list on Jul 25, 2026 — two days before this proposed trade — with an active advisory engagement on file as the reason. No prior activity by Priya Chandra in this ticker was found on record.",
+  suggestedNote:
+    "Flagged — NRDA has been restricted since Jul 25, 2026 due to an active advisory engagement. Recommend confirming with the deal team before clearing this trade.",
+};
+
 export const DEMO_AUDIT_ENTRIES = [
   { id: "demo-a4", whenLabel: "Jul 24, 2026, 9:15 AM", actor: "Morgan Ellis", action: "restricted list add", ticker: "ZNTH" },
   { id: "demo-a3", whenLabel: "Jul 24, 2026, 9:16 AM", actor: "Morgan Ellis", action: "restricted list add", ticker: "ORBT" },
