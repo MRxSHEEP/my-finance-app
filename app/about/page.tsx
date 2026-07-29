@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { LayoutDashboard, Target, UserSearch, CalendarClock, Calculator, Eye, Building2 } from "lucide-react";
 import RevealOnScroll from "@/components/RevealOnScroll";
 import { cardClass } from "@/lib/cardStyles";
@@ -50,7 +51,13 @@ export default function AboutPage() {
   return (
     <main className="flex flex-1 flex-col items-center gap-10 p-8 pt-16 pb-20">
       <RevealOnScroll className="flex w-full max-w-2xl flex-col items-center gap-3 text-center">
-        <span className="text-xs font-medium uppercase tracking-wide text-foreground/40">About Noble</span>
+        <Image
+          src="/crown(1).webp.webp"
+          alt="Noble"
+          width={64}
+          height={64}
+          style={{ width: "auto", height: "64px" }}
+        />
         <h1 className="text-3xl font-bold text-foreground sm:text-4xl">Market intelligence, made honest.</h1>
         <p className="text-sm leading-relaxed text-foreground/60 sm:text-base">
           Retail investors are drowning in noise. Star ratings that don&apos;t explain themselves. Price targets
