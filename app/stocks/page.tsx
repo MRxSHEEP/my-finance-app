@@ -174,6 +174,13 @@ type Overview = {
   name: string;
   industry: string;
   description?: string;
+  ceo?: string;
+  employeeCount?: number;
+  headquarters?: string;
+  // Stock's IPO date, not the company's founding date — see
+  // lib/fmp.ts's FmpProfile.ipoDate comment for why no "Founded" field
+  // exists. Always label this "IPO Date" wherever it's rendered.
+  ipoDate?: string;
   rating: number | null;
   ratingLabel: string;
   recommendationBreakdown: RecommendationBreakdown | null;
@@ -858,6 +865,11 @@ function StocksPageInner() {
                         <p className="mb-3 text-foreground/60">{overview.industry}</p>
                         {overview.description && (
                           <p className="mb-3 text-foreground">{overview.description}</p>
+                        )}
+                        {overview.ipoDate && (
+                          <p className="text-xs text-foreground/50">
+                            IPO Date: {new Date(`${overview.ipoDate}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                          </p>
                         )}
                       </div>
                     </div>

@@ -40,6 +40,24 @@ export interface FmpProfile {
   beta: number | null;
   companyName: string;
   industry: string | null;
+  // Real, professionally-written company description — replaces the
+  // Claude-paraphrased one-sentence summary app/api/stock/overview/route.ts
+  // used to generate from no real data at all (confirmed live: it once
+  // fabricated "Singapore Airlines" for ticker SQ, mixing up the stock
+  // symbol with an airline IATA code — the exact failure mode grounding is
+  // meant to prevent).
+  description: string | null;
+  ceo: string | null;
+  // FMP returns this as a numeric string (e.g. "166000"), not a number.
+  fullTimeEmployees: string | null;
+  city: string | null;
+  state: string | null;
+  // Date the stock went public — NOT the company's founding date (FMP has
+  // no structured "founded" field at all; the closest it gets is
+  // sometimes mentioning a founding year in the free-text description
+  // above, with no reliable format to parse). Always label this "IPO
+  // Date" wherever it's shown, never "Founded."
+  ipoDate: string | null;
 }
 
 export async function fetchFmpProfile(ticker: string): Promise<FmpProfile | null> {

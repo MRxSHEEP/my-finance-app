@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import { resolveTickerSymbol } from "@/lib/resolveTicker";
-import { getCachedDescription, setCachedDescription } from "@/lib/descriptionCache";
+import { fetchFmpProfile } from "@/lib/fmp";
 import { computeRatingFromTrend, ratingToLabel } from "@/lib/finnhubRating";
 import { withCacheAndFallback } from "@/lib/newsCache";
 
@@ -25,47 +24,19 @@ const NA = "N/A";
 // hour regardless of how many rows/users request it.
 const OVERVIEW_CACHE_TTL_MS = 60 * 60_000;
 
-async function generateDescription(
-  name: string,
-  ticker: string
-): Promise<string | undefined> {
-  const cached = getCachedDescription(ticker);
-  if (cached) return cached;
-
-  if (!process.env.ANTHROPIC_API_KEY) return undefined;
-
-  try {
-    const anthropic = new Anthropic();
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 100,
-      messages: [
-        {
-          role: "user",
-          content: `In exactly one concise sentence, describe what ${name} (${ticker}) does as a business. No preamble, just the sentence.`,
-        },
-      ],
-    });
-
-    const textBlock = message.content.find((block) => block.type === "text");
-    const generated = textBlock?.type === "text" ? textBlock.text.trim() : "";
-
-    if (!generated) return undefined;
-
-    setCachedDescription(ticker, generated);
-    return generated;
-  } catch {
-    // Description generation is supplementary — omit it rather than
-    // breaking the whole overview response.
-    return undefined;
-  }
-}
-
 interface OverviewData {
   ticker: string;
   name: string;
   industry: string;
   description?: string;
+  // Real FMP /profile fields — undefined/null (never fabricated) when FMP
+  // has no data for this ticker rather than guessed or omitted silently.
+  ceo?: string;
+  employeeCount?: number;
+  headquarters?: string;
+  // Stock's IPO date — NOT founding date, always labeled "IPO Date" by
+  // whatever renders it (see lib/fmp.ts's FmpProfile.ipoDate comment).
+  ipoDate?: string;
   rating: ReturnType<typeof computeRatingFromTrend>;
   ratingLabel: string;
   recommendationBreakdown: {
@@ -106,6 +77,12 @@ async function fetchOverviewData(ticker: string, apiKey: string): Promise<Overvi
     ticker
   )}&token=${apiKey}`;
 
+  // Kicked off alongside the two Finnhub requests, not after — fetchFmpProfile
+  // already swallows its own failures (missing key, 402, network error) into
+  // a plain null, so it never affects the Finnhub error-handling path below,
+  // and this way its latency overlaps with Finnhub's instead of stacking.
+  const fmpProfilePromise = fetchFmpProfile(ticker);
+
   let profileResponse: Response;
   let recommendationResponse: Response;
   try {
@@ -131,6 +108,7 @@ async function fetchOverviewData(ticker: string, apiKey: string): Promise<Overvi
 
   const profile = await profileResponse.json().catch(() => null);
   const recommendations = await recommendationResponse.json().catch(() => null);
+  const fmpProfile = await fmpProfilePromise;
 
   const name: string = profile?.name || ticker;
   const industry: string = profile?.finnhubIndustry || NA;
@@ -143,9 +121,22 @@ async function fetchOverviewData(ticker: string, apiKey: string): Promise<Overvi
   // fetched intrinsic value total into a real per-share pre-fill.
   const sharesOutstandingMillions: number | null =
     typeof profile?.shareOutstanding === "number" ? profile.shareOutstanding : null;
-  // profile2 doesn't return a description field at all; generate one via
-  // the Anthropic API (cached locally) instead of showing a placeholder.
-  const description = await generateDescription(name, ticker);
+
+  // Finnhub's profile2 has no description field at all. This used to be
+  // filled in by asking Claude to freely describe the company from its own
+  // training knowledge with zero real data fed in — confirmed live to have
+  // actually fabricated a wrong answer for at least one ticker (SQ came
+  // back as "Singapore Airlines," confusing the stock symbol with an
+  // airline IATA code). FMP's real, professionally-written description
+  // replaces that outright rather than mitigating it.
+  const description = fmpProfile?.description || undefined;
+  const ceo = fmpProfile?.ceo || undefined;
+  const employeeCount = fmpProfile?.fullTimeEmployees ? Number.parseInt(fmpProfile.fullTimeEmployees, 10) : undefined;
+  const headquarters =
+    fmpProfile?.city && fmpProfile?.state
+      ? `${fmpProfile.city}, ${fmpProfile.state}`
+      : fmpProfile?.city || fmpProfile?.state || undefined;
+  const ipoDate = fmpProfile?.ipoDate || undefined;
 
   const recommendationList: Array<{
     period?: string;
@@ -187,6 +178,10 @@ async function fetchOverviewData(ticker: string, apiKey: string): Promise<Overvi
       name,
       industry,
       description,
+      ceo,
+      employeeCount,
+      headquarters,
+      ipoDate,
       rating,
       ratingLabel,
       recommendationBreakdown,

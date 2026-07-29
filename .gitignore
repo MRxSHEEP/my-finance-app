@@ -36,9 +36,6 @@ yarn-error.log*
 # vercel
 .vercel
 
-# generated data caches
-/data/company-descriptions.json
-
 # prisma
 /prisma/*.db
 /prisma/*.db-journal
