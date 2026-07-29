@@ -7,6 +7,7 @@ import type { ComplianceRole } from "@/lib/compliance/roles";
 import CreateOrgCard from "@/components/compliance/CreateOrgCard";
 import ComplianceDashboard from "@/components/compliance/ComplianceDashboard";
 import EmployeeComplianceView from "@/components/compliance/EmployeeComplianceView";
+import ComplianceWalkthrough from "@/components/compliance/preview/ComplianceWalkthrough";
 
 interface OrgState {
   organization: { id: string; name: string } | null;
@@ -55,12 +56,18 @@ export default function CompliancePage() {
 
   if (status !== "authenticated") {
     return (
-      <main className="flex flex-1 flex-col items-center gap-4 p-8 pt-16 text-center">
-        <h1 className="text-3xl font-bold text-foreground">Compliance</h1>
-        <p className="text-foreground/60">Sign in to access your organization&apos;s compliance tools.</p>
-        <Link href="/login" className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90">
-          Sign In
-        </Link>
+      <main className="flex flex-1 flex-col items-center gap-6 p-8 pt-16 text-center">
+        <div className="flex flex-col items-center gap-1">
+          <h1 className="text-3xl font-bold text-foreground">Compliance</h1>
+          <p className="text-foreground/60">See how trade disclosures, pre-clearance, and audit logging work before you sign in.</p>
+        </div>
+        <ComplianceWalkthrough />
+        <p className="text-sm text-foreground/60">
+          Already have an account?{" "}
+          <Link href="/login" className="font-medium text-foreground hover:underline">
+            Sign in
+          </Link>
+        </p>
       </main>
     );
   }
