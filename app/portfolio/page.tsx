@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import SimulatedPortfolioSection from "@/components/portfolio/SimulatedPortfolioSection";
@@ -13,6 +13,16 @@ import SimulatedPortfolioWalkthrough from "@/components/portfolio/preview/Simula
 // elsewhere in this app for features pending a decision.
 export default function PortfolioPage() {
   const { status } = useSession();
+
+  // Same fire-and-forget Noble Generated News coverage trigger as
+  // app/news/page.tsx — viewing either surface is enough to kick off
+  // generation for this user's currently-held tickers (see
+  // app/api/generated-news/ensure/route.ts), not awaited here either.
+  useEffect(() => {
+    if (status === "authenticated") {
+      fetch("/api/generated-news/ensure", { method: "POST" }).catch(() => {});
+    }
+  }, [status]);
 
   if (status === "loading") {
     return (

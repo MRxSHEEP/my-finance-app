@@ -11,6 +11,9 @@ export type Article = {
   url: string;
   imageUrl: string | null;
   category?: "Markets" | "Stocks" | "Crypto" | "Commodities" | "Earnings" | "Economy";
+  // True only for a Noble Generated News article — see
+  // lib/generatedNews/feedMerge.ts and ArticleCard.tsx's gold label.
+  isAiGenerated?: boolean;
 };
 
 const ROTATE_INTERVAL_MS = 5000;

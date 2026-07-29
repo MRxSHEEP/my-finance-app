@@ -15,6 +15,7 @@ import {
   type SourceResult,
 } from "@/lib/newsApi";
 import { withCacheAndFallback } from "@/lib/newsCache";
+import { fetchGeneratedArticles, withGuaranteedGeneratedArticle } from "@/lib/generatedNews/feedMerge";
 
 // Live-verified: Marketaux's `search` parameter does NOT support n-ary
 // boolean OR the way the previous version of this route assumed (a
@@ -137,10 +138,14 @@ export async function GET() {
 
   const fresh = marketauxResult.articles.filter(isLikelyRelevant).filter(isEnglishScript);
 
-  const articles: NewsArticle[] = mergeIntoRollingArticles(fresh).map((article) => ({
+  const realArticles: NewsArticle[] = mergeIntoRollingArticles(fresh).map((article) => ({
     ...article,
     category: "Commodities",
   }));
+
+  const generated = await fetchGeneratedArticles("commodity");
+  const pool = dedupeAndSortArticles([...realArticles, ...generated]);
+  const articles = withGuaranteedGeneratedArticle(pool, ROLLING_ARTICLE_CAP);
 
   return NextResponse.json({ articles, stale, staleFetchedAt });
 }

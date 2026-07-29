@@ -909,3 +909,44 @@ model TradeSignal {
 
   @@index([generatedAt])
 }
+
+// Noble Generated News — AI-authored articles merged into the existing
+// News feed (see lib/generatedNews/, app/api/generated-news/*), never a
+// human-edited row. One row per (assetType, ticker): both the daily
+// watchlist cron (app/api/generated-news/ingest) and the on-demand
+// personalized-holdings path (app/api/generated-news/ensure) write into
+// this same shared pool keyed by ticker, not user — whichever reaches a
+// ticker first within the freshness window wins, the other just no-ops.
+model GeneratedNewsArticle {
+  id String @id @default(cuid())
+
+  // "stock" | "crypto" | "commodity" — lib/simulatedTrading/pricing.ts's
+  // AssetType, distinct from lib/newsApi.ts's own broader NewsCategory
+  // (bridged at read time, see lib/generatedNews/category.ts).
+  assetType String
+  // Stock ticker, CoinGecko id (crypto), or provider symbol (commodity,
+  // e.g. "C:XAUUSD") — whatever lib/simulatedTrading/pricing.ts's
+  // getCurrentPrice expects for this assetType, same convention as
+  // SimulatedHolding.symbol.
+  ticker      String
+  displayName String
+
+  title String
+  body  String @db.Text
+
+  // The exact data this article was generated from, stored verbatim —
+  // same audit convention as TradeSignal.dataSnapshot.
+  dataSnapshot Json
+  // Claude's own self-reported numeric citations (fieldName -> value),
+  // checked against dataSnapshot before publish (see
+  // lib/generatedNews/factCheck.ts) — a failed check means this row is
+  // never written at all, so every persisted row here already passed.
+  // Kept for audit/debugging, not re-validated on read.
+  citedFacts Json
+
+  generatedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([assetType, ticker])
+  @@index([generatedAt])
+}

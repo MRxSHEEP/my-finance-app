@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSession } from "next-auth/react";
 import NewsTicker, { type Article } from "@/components/NewsTicker";
 import {
   ArticleCard,
@@ -129,7 +130,20 @@ function computeTickerPool(articles: Article[], seenUrls: Set<string>): Article[
   return [...newOnes, ...rest];
 }
 
+// Fire-and-forget: kicks off Noble Generated News coverage for whatever
+// tickers this signed-in user currently holds in a Simulated Portfolio,
+// without awaiting the response — a live Claude generation must never
+// block this page's render. The route itself fully processes the request
+// server-side (bounded by its own time budget), so by the time the user's
+// next page view re-fetches news, generation will typically have already
+// finished; this view just won't show it yet if it was the very first
+// time a newly-acquired holding was ever generated for.
+function ensurePersonalizedGeneratedNews() {
+  fetch("/api/generated-news/ensure", { method: "POST" }).catch(() => {});
+}
+
 export default function NewsPage() {
+  const { status } = useSession();
   const [articles, setArticles] = useState<Article[] | null>(null);
   const [gridError, setGridError] = useState<string | null>(null);
   // True when at least one of the initial pages served last-known-good
@@ -155,6 +169,10 @@ export default function NewsPage() {
   }, [articles, categoryFilter]);
 
   const [categoryLoadingMore, setCategoryLoadingMore] = useState(false);
+
+  useEffect(() => {
+    if (status === "authenticated") ensurePersonalizedGeneratedNews();
+  }, [status]);
 
   async function handleLoadMore() {
     if (loadingMore || categoryLoadingMore || !hasMoreGrid) return;

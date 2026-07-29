@@ -14,6 +14,7 @@ import {
   type SourceResult,
 } from "@/lib/newsApi";
 import { withCacheAndFallback } from "@/lib/newsCache";
+import { fetchGeneratedArticleForTicker, fetchGeneratedArticles, withGuaranteedGeneratedArticle } from "@/lib/generatedNews/feedMerge";
 
 export const dynamic = "force-dynamic";
 
@@ -96,13 +97,22 @@ export async function GET(request: Request) {
     return NextResponse.json({ articles: [], degraded: true });
   }
 
-  const articles: NewsArticle[] = dedupeSimilarTitles(
+  const realArticles: NewsArticle[] = dedupeSimilarTitles(
     dedupeAndSortArticles(filterRecentArticles(marketauxResult.articles))
   )
     .filter((a) => !isFromWireService(a))
     .filter(isEnglishScript)
-    .slice(0, RESULT_COUNT)
     .map((article) => ({ ...article, category: "Stocks" }));
+
+  // Ticker-specific mode merges in just that ticker's own Noble Generated
+  // News article (if one exists); general mode merges in every published
+  // stock one — see lib/generatedNews/feedMerge.ts.
+  const generated = ticker
+    ? await fetchGeneratedArticleForTicker("stock", ticker).then((a) => (a ? [a] : []))
+    : await fetchGeneratedArticles("stock");
+
+  const pool = dedupeAndSortArticles([...realArticles, ...generated]);
+  const articles = withGuaranteedGeneratedArticle(pool, RESULT_COUNT);
 
   return NextResponse.json({ articles, stale, staleFetchedAt });
 }

@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { Sparkles } from "lucide-react";
 import type { Article } from "@/components/NewsTicker";
 
 export function formatRelativeTime(dateStr: string | null): string {
@@ -60,6 +62,21 @@ export const CATEGORY_TAB_ACTIVE_STYLES: Record<string, string> = {
 // generic "Markets" catch-all last since it's the least specific bucket.
 export const NEWS_CATEGORY_ORDER = ["Stocks", "Crypto", "Commodities", "Earnings", "Economy", "Markets"] as const;
 
+// Deliberately not just "different text" from the plain source byline
+// below (text-xs font-medium text-foreground/50, no fill, no icon) — a
+// solid-filled gold badge with an icon so a user scanning the feed can
+// tell a Noble Generated News item apart at a glance, not just on close
+// reading. Same pill geometry as CategoryTag for rhythm, but everything
+// else (fill, weight, icon) is intentionally distinct.
+function NobleGeneratedLabel() {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-gradient-to-r from-amber-400 to-yellow-500 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-black shadow-sm shadow-amber-500/30">
+      <Sparkles size={11} strokeWidth={2.5} />
+      Noble Generated News
+    </span>
+  );
+}
+
 function CategoryTag({ category }: { category?: string }) {
   if (!category) return null;
   const style = CATEGORY_STYLES[category] ?? "bg-foreground/10 text-foreground/60";
@@ -88,17 +105,19 @@ export function ArticleCardSkeleton() {
 }
 
 export function ArticleCard({ article }: { article: Article }) {
-  return (
-    <a
-      href={article.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="group flex items-start gap-3 border-b border-black/5 py-3 text-sm transition-colors duration-150 ease-out hover:bg-foreground/[0.03] dark:border-white/10"
-    >
+  const className =
+    "group flex items-start gap-3 border-b border-black/5 py-3 text-sm transition-colors duration-150 ease-out hover:bg-foreground/[0.03] dark:border-white/10";
+
+  const content = (
+    <>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
           <CategoryTag category={article.category} />
-          <span className="truncate text-xs font-medium text-foreground/50">{article.source}</span>
+          {article.isAiGenerated ? (
+            <NobleGeneratedLabel />
+          ) : (
+            <span className="truncate text-xs font-medium text-foreground/50">{article.source}</span>
+          )}
           <span className="text-xs text-foreground/30">·</span>
           <span className="whitespace-nowrap text-xs text-foreground/50">
             {formatRelativeTime(article.publishedAt)}
@@ -125,6 +144,24 @@ export function ArticleCard({ article }: { article: Article }) {
           }}
         />
       )}
+    </>
+  );
+
+  // Noble Generated News articles have no external source to link out to
+  // — they open the in-app detail page (app/news/generated/[id]/page.tsx)
+  // that hosts the mandatory AI-disclosure disclaimer, instead of a new
+  // tab.
+  if (article.isAiGenerated) {
+    return (
+      <Link href={article.url} className={className}>
+        {content}
+      </Link>
+    );
+  }
+
+  return (
+    <a href={article.url} target="_blank" rel="noopener noreferrer" className={className}>
+      {content}
     </a>
   );
 }

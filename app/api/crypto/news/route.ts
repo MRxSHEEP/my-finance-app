@@ -13,6 +13,7 @@ import {
   type NewsArticle,
 } from "@/lib/newsApi";
 import { withCacheAndFallback } from "@/lib/newsCache";
+import { fetchGeneratedArticles, withGuaranteedGeneratedArticle } from "@/lib/generatedNews/feedMerge";
 
 export const dynamic = "force-dynamic";
 
@@ -91,13 +92,16 @@ export async function GET() {
     return NextResponse.json({ articles: [], degraded: true });
   }
 
-  const articles: NewsArticle[] = dedupeSimilarTitles(
+  const realArticles: NewsArticle[] = dedupeSimilarTitles(
     dedupeAndSortArticles(filterRecentArticles(marketauxResult.articles))
   )
     .filter((a) => !isFromWireService(a))
     .filter(isEnglishScript)
-    .slice(0, RESULT_COUNT)
     .map((article) => ({ ...article, category: "Crypto" }));
+
+  const generated = await fetchGeneratedArticles("crypto");
+  const pool = dedupeAndSortArticles([...realArticles, ...generated]);
+  const articles = withGuaranteedGeneratedArticle(pool, RESULT_COUNT);
 
   return NextResponse.json({ articles, stale, staleFetchedAt });
 }

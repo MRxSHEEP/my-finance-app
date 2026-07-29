@@ -13,6 +13,7 @@ import {
   type NewsArticle,
 } from "@/lib/newsApi";
 import { withCacheAndFallback } from "@/lib/newsCache";
+import { fetchGeneratedArticles } from "@/lib/generatedNews/feedMerge";
 
 // Broad cross-market feed, not stock-only — combining both symbol sets in
 // one call (rather than a second request) is what lets Crypto articles
@@ -77,9 +78,21 @@ export async function GET(request: NextRequest) {
   // used to get — see classifyCategory in lib/newsApi.ts. entityTypes is
   // stripped afterward: it's an internal classification input, not
   // something the client needs on the wire.
-  const articles: NewsArticle[] = dedupeAndSortArticles(filterRecentArticles(marketauxResult.articles))
+  let articles: NewsArticle[] = dedupeAndSortArticles(filterRecentArticles(marketauxResult.articles))
     .filter((a) => !isFromWireService(a))
     .map(classifyAndStripEntityTypes);
+
+  // Every published Noble Generated News article merges into page 1 only
+  // — this route has no per-page result cap (unlike app/api/stock|crypto/
+  // news's RESULT_COUNT), so nothing here risks being pushed out by a
+  // fuller page, and app/news/page.tsx fetches page 1 on every load,
+  // guaranteeing these are present in `articles` (and therefore visible
+  // under every category tab that filters it) without needing to touch
+  // "Load more"'s pagination/dedup logic on later pages.
+  if (page === 1) {
+    const generated = await fetchGeneratedArticles();
+    articles = dedupeAndSortArticles([...articles, ...generated]);
+  }
 
   return NextResponse.json({ articles, page, stale, staleFetchedAt });
 }

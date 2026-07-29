@@ -72,6 +72,13 @@ export type NewsArticle = {
   // category (crypto/commodities/stock-specific) ignore it and should strip
   // it before returning JSON, the same as classifyCategory's callers do.
   entityTypes?: string[];
+  // True only for a Noble Generated News article (see
+  // lib/generatedNews/feedMerge.ts) — every real Marketaux article omits
+  // this entirely rather than setting it false, so `article.isAiGenerated`
+  // is a safe truthy check on the wire. Drives the gold "Noble Generated
+  // News" label in components/ArticleCard.tsx and the internal (not
+  // external) link target.
+  isAiGenerated?: boolean;
 };
 
 // Distinguishes *why* a Marketaux request failed so callers/routes can
