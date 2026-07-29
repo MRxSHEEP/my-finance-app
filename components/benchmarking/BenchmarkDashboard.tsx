@@ -5,6 +5,7 @@ import { toPng } from "html-to-image";
 import { Download, FileText } from "lucide-react";
 import { cardClass } from "@/lib/cardStyles";
 import MiniLineChart from "@/components/MiniLineChart";
+import { PercentChangeBadge } from "@/components/PriceChart";
 import BenchmarkBrandHeader from "@/components/benchmarking/BenchmarkBrandHeader";
 
 interface OrganizationInfo {
@@ -191,6 +192,16 @@ export default function BenchmarkDashboard({ organization, peerSet, onEditPeerSe
                       .filter((s) => s[def.key] != null)
                       .map((s) => ({ time: Math.floor(new Date(s.asOfDate).getTime() / 1000), value: s[def.key] as number }));
 
+                    const first = points[0]?.value;
+                    const last = points[points.length - 1]?.value;
+                    // Guard the division, not just the display — a near-zero
+                    // starting value (FCF yield hovering around 0%, for
+                    // instance) would otherwise produce a meaningless
+                    // thousand-percent swing rather than an honestly-omitted
+                    // badge, same reasoning as this app's existing
+                    // unrealizedGainLossPercent guards.
+                    const percentChange = points.length >= 2 && first !== 0 ? ((last - first) / Math.abs(first)) * 100 : null;
+
                     return (
                       <div key={t.ticker} className="flex flex-col gap-1">
                         <span className={`text-xs font-medium ${t.isOwnCompany ? "text-indigo-400" : "text-foreground/70"}`}>
@@ -198,7 +209,15 @@ export default function BenchmarkDashboard({ organization, peerSet, onEditPeerSe
                           {t.isOwnCompany && " (Own)"}
                         </span>
                         {points.length >= 2 ? (
-                          <MiniLineChart data={points} height={48} />
+                          <>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[11px] text-foreground/60">
+                                {def.format(first)} <span className="text-foreground/40">→</span> {def.format(last)}
+                              </span>
+                              {percentChange !== null && <PercentChangeBadge value={percentChange} />}
+                            </div>
+                            <MiniLineChart data={points} height={48} />
+                          </>
                         ) : (
                           <p className="text-[11px] text-foreground/40">Not enough history yet.</p>
                         )}
