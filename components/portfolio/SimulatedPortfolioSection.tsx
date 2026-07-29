@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { cardClass } from "@/lib/cardStyles";
 import { PORTFOLIO_TIERS } from "@/lib/simulatedTrading/tiers";
+import RevealOnScroll from "@/components/RevealOnScroll";
 import SimulatedBadge from "./SimulatedBadge";
 import SimulatedTradingDisclaimer from "./SimulatedTradingDisclaimer";
 
@@ -62,7 +63,10 @@ function PortfolioCard({ portfolio }: { portfolio: PortfolioSummary }) {
 function TierCard({ tier, onClaim, busy }: { tier: (typeof PORTFOLIO_TIERS)[number]; onClaim: (tierId: string) => void; busy: boolean }) {
   const isFree = tier.priceCents === 0;
   return (
-    <div className={cardClass("neutral", { extra: "flex flex-col gap-2 p-4" })}>
+    // interactive: true adds the same hover-lift already used for
+    // PortfolioCard below — these cards are meant to feel just as
+    // clickable/selectable, which they previously didn't.
+    <div className={cardClass("neutral", { interactive: true, extra: "flex flex-col gap-2 p-4" })}>
       <div className="flex items-center gap-1.5">
         <Image src="/crown(1).webp.webp" alt="" width={14} height={14} style={{ width: "auto", height: "14px" }} />
         <span className="font-semibold text-foreground">{tier.label}</span>
@@ -73,9 +77,14 @@ function TierCard({ tier, onClaim, busy }: { tier: (typeof PORTFOLIO_TIERS)[numb
         type="button"
         disabled={busy}
         onClick={() => onClaim(tier.id)}
-        className="mt-2 self-start rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-50"
+        className="mt-2 flex items-center gap-1.5 self-start rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-all duration-150 ease-out hover:opacity-90 active:scale-95 disabled:opacity-50"
       >
-        {busy ? "…" : isFree ? "Start free" : `Buy for $${(tier.priceCents / 100).toFixed(2)}`}
+        {busy && (
+          // Same CSS-border-spinner already used in app/tools/screener/page.tsx —
+          // no new loading-indicator pattern.
+          <span className="h-3 w-3 animate-spin rounded-full border-2 border-background/30 border-t-background" />
+        )}
+        {busy ? "Working…" : isFree ? "Start free" : `Buy for $${(tier.priceCents / 100).toFixed(2)}`}
       </button>
     </div>
   );
@@ -211,7 +220,7 @@ export default function SimulatedPortfolioSection() {
         <p className="rounded-md bg-indigo-400/10 px-3 py-2 text-sm text-indigo-400">{checkoutNotice}</p>
       )}
 
-      <section className="flex flex-col gap-3">
+      <RevealOnScroll className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold text-foreground">Start a Simulated Portfolio</h2>
         <p className="-mt-1 text-sm text-foreground/50">
           Pick a starting balance. Paid tiers are a one-time fee, charged via Stripe — see the
@@ -222,9 +231,9 @@ export default function SimulatedPortfolioSection() {
             <TierCard key={tier.id} tier={tier} onClaim={handleClaim} busy={busyTier === tier.id} />
           ))}
         </div>
-      </section>
+      </RevealOnScroll>
 
-      <section className="flex flex-col gap-3">
+      <RevealOnScroll className="flex flex-col gap-3" delayMs={80}>
         <h2 className="text-lg font-semibold text-foreground">Your Simulated Portfolios</h2>
         {error && <p className="text-sm text-red-500">{error}</p>}
         {portfolios === null && !error && (
@@ -246,7 +255,7 @@ export default function SimulatedPortfolioSection() {
             ))}
           </div>
         )}
-      </section>
+      </RevealOnScroll>
 
       <SimulatedTradingDisclaimer />
     </div>

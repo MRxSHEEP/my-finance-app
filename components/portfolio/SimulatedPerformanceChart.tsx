@@ -2,7 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { TrendingUp } from "lucide-react";
 import { cardClass } from "@/lib/cardStyles";
+import AnimatedNumber from "@/components/tools/AnimatedNumber";
+
+// Below this many real data points, the chart is technically renderable
+// but too sparse to look intentional (a near-flat 2-3 point line) — still
+// shown (never hidden — it's real data), just with a small caption below
+// explaining why, rather than looking like a rendering glitch.
+const SPARSE_HISTORY_POINT_COUNT = 5;
 
 type Timeframe = "1D" | "1W" | "1M" | "3M" | "1Y" | "ALL";
 
@@ -271,12 +279,15 @@ export default function SimulatedPerformanceChart({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <div className="flex flex-col gap-0.5">
           <span className="text-[11px] text-foreground/50">Current Total Value</span>
-          <span className="text-base font-semibold text-foreground">{compactCurrencyFormatter.format(totalValue)}</span>
+          <span className="text-base font-semibold text-foreground">
+            <AnimatedNumber value={totalValue} format={compactCurrencyFormatter.format} />
+          </span>
         </div>
         <div className="flex flex-col gap-0.5">
           <span className="text-[11px] text-foreground/50">Return ({timeframe})</span>
           <span className={`text-base font-semibold ${isUp ? "text-green-500" : "text-red-500"}`}>
-            {formatSignedCurrency(timeframeReturn)} ({formatPercent(timeframeReturnPercent)})
+            <AnimatedNumber value={timeframeReturn} format={formatSignedCurrency} /> (
+            <AnimatedNumber value={timeframeReturnPercent} format={formatPercent} />)
           </span>
         </div>
         {showBenchmark && (
@@ -299,14 +310,27 @@ export default function SimulatedPerformanceChart({
         )}
       </div>
 
+      {showBenchmark && (
+        <div className="flex items-center gap-4 text-[11px] text-foreground/60">
+          <span className="flex items-center gap-1.5">
+            <span className={`h-0.5 w-4 rounded-full ${isUp ? "bg-green-500" : "bg-red-500"}`} />
+            Your Portfolio
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-0.5 w-4 rounded-full border-t-2 border-dashed border-amber-500" />
+            S&amp;P 500
+          </span>
+        </div>
+      )}
+
       {chartData.length > 1 ? (
         <div className="h-56 w-full" key={timeframe}>
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={chartData}>
               <defs>
                 <linearGradient id="simulatedPortfolioGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                  <stop offset="5%" stopColor={isUp ? "#22c55e" : "#ef4444"} stopOpacity={0.3} />
+                  <stop offset="95%" stopColor={isUp ? "#22c55e" : "#ef4444"} stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.06} />
@@ -320,7 +344,7 @@ export default function SimulatedPerformanceChart({
               <Area
                 type="monotone"
                 dataKey="portfolioValue"
-                stroke="#6366f1"
+                stroke={isUp ? "#22c55e" : "#ef4444"}
                 strokeWidth={2}
                 fill="url(#simulatedPortfolioGradient)"
                 dot={chartData.length <= 10 ? { r: 3 } : false}
@@ -346,8 +370,20 @@ export default function SimulatedPerformanceChart({
           </ResponsiveContainer>
         </div>
       ) : (
-        <p className="rounded-md bg-foreground/5 px-3 py-2 text-xs text-foreground/50">
-          Not enough history yet for this view.
+        <div className="flex items-center gap-3 rounded-lg bg-foreground/5 p-4 text-foreground/50">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-foreground/5">
+            <TrendingUp size={18} />
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <p className="text-sm font-medium text-foreground/70">Your performance will appear here</p>
+            <p className="text-xs">One point is recorded per day — check back tomorrow to see your first trend line.</p>
+          </div>
+        </div>
+      )}
+
+      {chartData.length > 1 && chartData.length < SPARSE_HISTORY_POINT_COUNT && (
+        <p className="text-[11px] italic text-foreground/40">
+          Still building history — check back daily as more of your performance builds in.
         </p>
       )}
 

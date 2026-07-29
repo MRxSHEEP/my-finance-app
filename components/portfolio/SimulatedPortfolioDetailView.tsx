@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ChevronDown } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, ArrowDownRight, ChevronDown } from "lucide-react";
 import { cardClass } from "@/lib/cardStyles";
 import { COMMODITY_NAMES } from "@/lib/commodityNames";
 import { PORTFOLIO_TIERS } from "@/lib/simulatedTrading/tiers";
@@ -10,6 +10,10 @@ import { SCROLLBAR_THIN_CLASS } from "@/lib/scrollbarStyles";
 import { PercentChangeBadge } from "@/components/PriceChart";
 import ScrollHint from "@/components/ScrollHint";
 import SparklineSlot from "@/components/SparklineSlot";
+import MiniLineChart from "@/components/MiniLineChart";
+import TickerAutocompleteInput from "@/components/TickerAutocompleteInput";
+import RevealOnScroll from "@/components/RevealOnScroll";
+import AnimatedNumber from "@/components/tools/AnimatedNumber";
 import SimulatedBadge from "./SimulatedBadge";
 import SimulatedTradingDisclaimer from "./SimulatedTradingDisclaimer";
 import SimulatedPerformanceChart from "./SimulatedPerformanceChart";
@@ -72,7 +76,7 @@ function formatTransactionType(type: string): string {
 function TransactionRow({ tx }: { tx: TransactionOut }) {
   const isBuy = tx.transactionType === "buy";
   return (
-    <tr className="border-t border-black/5 dark:border-white/10">
+    <tr className="border-t border-black/5 transition-colors duration-150 ease-out hover:bg-foreground/[0.03] dark:border-white/10">
       <td className="p-2 font-medium text-foreground">{tx.symbol}</td>
       <td className="p-2">
         <span
@@ -343,10 +347,13 @@ function TradeForm({ portfolioId, holdings, onTraded }: { portfolioId: string; h
 
   const heldForAssetType = holdings.filter((h) => h.assetType === assetType);
 
-  // Search-driven symbol picking only applies to Buy for stocks/crypto —
-  // Sell instead sources its choices from what's actually held (below),
-  // and Commodities always uses the fixed 9-symbol dropdown regardless of
-  // buy/sell, since there's no free-text search for that asset type.
+  // Search-driven symbol picking only applies to Buy for crypto — Stocks
+  // now use TickerAutocompleteInput below, which owns its own debounced
+  // /api/stock/suggestions fetch internally, so this effect only ever
+  // needs to cover crypto's own /api/crypto/search. Sell instead sources
+  // its choices from what's actually held (below), and Commodities always
+  // uses the fixed 9-symbol dropdown regardless of buy/sell, since there's
+  // no free-text search for that asset type.
   useEffect(() => {
     let cancelled = false;
     // The "clear" case is scheduled through the same debounce timer as the
@@ -355,7 +362,7 @@ function TradeForm({ portfolioId, holdings, onTraded }: { portfolioId: string; h
     // callback, never synchronously within the effect body itself.
     const timer = setTimeout(async () => {
       if (cancelled) return;
-      if (assetType === "commodity" || transactionType === "sell") {
+      if (assetType !== "crypto" || transactionType === "sell") {
         setSuggestions([]);
         return;
       }
@@ -366,18 +373,10 @@ function TradeForm({ portfolioId, holdings, onTraded }: { portfolioId: string; h
       }
 
       try {
-        if (assetType === "stock") {
-          const response = await fetch(`/api/stock/suggestions?q=${encodeURIComponent(term)}`);
-          const body = await response.json().catch(() => null);
-          if (!cancelled && Array.isArray(body?.suggestions)) {
-            setSuggestions(body.suggestions.map((s: { symbol: string; description: string }) => ({ symbol: s.symbol, name: s.description })));
-          }
-        } else {
-          const response = await fetch(`/api/crypto/search?q=${encodeURIComponent(term)}`);
-          const body = await response.json().catch(() => null);
-          if (!cancelled && Array.isArray(body?.results)) {
-            setSuggestions(body.results.map((r: { id: string; name: string }) => ({ symbol: r.id, name: r.name })));
-          }
+        const response = await fetch(`/api/crypto/search?q=${encodeURIComponent(term)}`);
+        const body = await response.json().catch(() => null);
+        if (!cancelled && Array.isArray(body?.results)) {
+          setSuggestions(body.results.map((r: { id: string; name: string }) => ({ symbol: r.id, name: r.name })));
         }
       } catch {
         // leave suggestions empty — not a fatal error for the form
@@ -511,9 +510,30 @@ function TradeForm({ portfolioId, holdings, onTraded }: { portfolioId: string; h
             options={Object.entries(COMMODITY_NAMES).map(([sym, label]) => ({ value: sym, label }))}
           />
         </label>
+      ) : assetType === "stock" ? (
+        // Reuses the same TickerAutocompleteInput component Peer Benchmarking
+        // and Compliance already use (real-time validated suggestions from
+        // /api/stock/suggestions, debounce built in) — fixes stocks not
+        // reliably popping up under the old hand-rolled fetch below.
+        <label className="flex flex-col gap-1">
+          <span className="text-sm font-medium text-foreground">Ticker or company name</span>
+          <TickerAutocompleteInput
+            value={symbol ? `${symbol} — ${name}` : searchInput}
+            onChange={(value) => {
+              setSymbol("");
+              setName(null);
+              setSearchInput(value);
+            }}
+            onSelect={(sym, description) => {
+              setSymbol(sym);
+              setName(description);
+            }}
+            placeholder="AAPL"
+          />
+        </label>
       ) : (
         <label className="relative flex flex-col gap-1">
-          <span className="text-sm font-medium text-foreground">{assetType === "stock" ? "Ticker or company name" : "Coin name or symbol"}</span>
+          <span className="text-sm font-medium text-foreground">Coin name or symbol</span>
           <input
             value={symbol ? `${symbol} — ${name}` : searchInput}
             onChange={(e) => {
@@ -521,7 +541,7 @@ function TradeForm({ portfolioId, holdings, onTraded }: { portfolioId: string; h
               setName(null);
               setSearchInput(e.target.value);
             }}
-            placeholder={assetType === "stock" ? "AAPL" : "bitcoin"}
+            placeholder="bitcoin"
             className="w-full rounded-md border border-black/10 bg-transparent px-3 py-2 text-sm outline-none focus:border-black/30 dark:border-white/15 dark:focus:border-white/30"
           />
           {suggestions.length > 0 && !symbol && (
@@ -590,6 +610,14 @@ export default function SimulatedPortfolioDetailView({ id }: { id: string }) {
   // as an externally-defined function) so every setState it performs is
   // deferred behind an `await`, never synchronous within the effect body.
   const [refreshToken, setRefreshToken] = useState(0);
+  // Per-symbol price history for the Current Holdings sparklines, stock
+  // holdings only — one batched /api/stock/mini-quotes call (the same
+  // endpoint Market Digest/Watchlist already use for exactly this), rather
+  // than a fetch per row. Commodity/crypto holdings simply show no
+  // sparkline (that endpoint doesn't cover them) instead of faking one
+  // from a mismatched data source. Purely decorative — never read for any
+  // balance/value calculation.
+  const [holdingHistories, setHoldingHistories] = useState<Record<string, { time: number; value: number }[]>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -613,6 +641,43 @@ export default function SimulatedPortfolioDetailView({ id }: { id: string }) {
       cancelled = true;
     };
   }, [id, refreshToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Both the "nothing to fetch" early-out and the real fetch defer their
+    // first setState behind this macrotask — same pattern as AssetPreview's
+    // own effect above — so neither ever calls setState synchronously
+    // within the effect body itself.
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+      const stockSymbols = (detail?.holdings ?? []).filter((h) => h.assetType === "stock").map((h) => h.symbol);
+      if (stockSymbols.length === 0) {
+        setHoldingHistories({});
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/stock/mini-quotes?symbols=${encodeURIComponent(stockSymbols.join(","))}`);
+        const body = await response.json().catch(() => null);
+        if (cancelled || !Array.isArray(body?.quotes)) return;
+        const map: Record<string, { time: number; value: number }[]> = {};
+        for (const q of body.quotes as Array<{ symbol: string; history: { time: number; value: number }[] | null }>) {
+          if (q.history) map[q.symbol] = q.history;
+        }
+        setHoldingHistories(map);
+      } catch {
+        if (!cancelled) setHoldingHistories({});
+      }
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // Re-fetch only when the actual set of stock symbols held changes, not
+    // on every detail refresh (price ticks alone shouldn't re-trigger this).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.holdings.map((h) => h.symbol).join(",")]);
 
   const sortedTransactions = useMemo(() => {
     if (!detail) return [];
@@ -655,25 +720,29 @@ export default function SimulatedPortfolioDetailView({ id }: { id: string }) {
           <SimulatedBadge />
         </div>
 
-        <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <RevealOnScroll className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <div className={cardClass("neutral", { extra: "flex flex-col gap-1 p-4" })}>
             <span className="text-xs text-foreground/50">Total Value</span>
-            <p className="text-xl font-bold text-foreground">{compactCurrencyFormatter.format(totalValue)}</p>
+            <p className="text-xl font-bold text-foreground">
+              <AnimatedNumber value={totalValue} format={compactCurrencyFormatter.format} />
+            </p>
           </div>
           <div className={cardClass("neutral", { extra: "flex flex-col gap-1 p-4" })}>
             <span className="text-xs text-foreground/50">Total Return</span>
             <p className={`text-xl font-bold ${isUp ? "text-green-500" : "text-red-500"}`}>
               {isUp ? "+" : ""}
-              {currencyFormatter.format(totalReturn)}
+              <AnimatedNumber value={totalReturn} format={currencyFormatter.format} />
             </p>
             <span className={`text-[11px] ${isUp ? "text-green-500" : "text-red-500"}`}>
               {isUp ? "+" : ""}
-              {totalReturnPercent.toFixed(2)}%
+              <AnimatedNumber value={totalReturnPercent} format={(v) => `${v.toFixed(2)}%`} />
             </span>
           </div>
           <div className={cardClass("neutral", { extra: "flex flex-col gap-1 p-4" })}>
             <span className="text-xs text-foreground/50">Cash Balance</span>
-            <p className="text-xl font-bold text-foreground">{compactCurrencyFormatter.format(portfolio.cashBalance)}</p>
+            <p className="text-xl font-bold text-foreground">
+              <AnimatedNumber value={portfolio.cashBalance} format={compactCurrencyFormatter.format} />
+            </p>
           </div>
           <div className={cardClass("neutral", { extra: "flex flex-col gap-1 p-4" })}>
             <span className="text-xs text-foreground/50">Started</span>
@@ -681,12 +750,15 @@ export default function SimulatedPortfolioDetailView({ id }: { id: string }) {
               {new Date(portfolio.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
             </p>
           </div>
-        </section>
+        </RevealOnScroll>
 
-        <SimulatedPerformanceChart portfolio={portfolio} performanceSeries={performanceSeries} totalValue={totalValue} />
+        <RevealOnScroll delayMs={60}>
+          <SimulatedPerformanceChart portfolio={portfolio} performanceSeries={performanceSeries} totalValue={totalValue} />
+        </RevealOnScroll>
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <section className={cardClass("neutral", { extra: "flex flex-col gap-3 p-4" })}>
+          <RevealOnScroll delayMs={100}>
+          <section key={refreshToken} className={cardClass("neutral", { extra: "flex flex-col gap-3 p-4 animate-nav-item-fade-in motion-reduce:animate-none" })}>
             <h2 className="text-lg font-semibold text-foreground">Current Holdings</h2>
             {holdings.length === 0 ? (
               <p className="rounded-md bg-foreground/5 px-3 py-2 text-xs text-foreground/50">No holdings yet — trade below to get started.</p>
@@ -694,10 +766,11 @@ export default function SimulatedPortfolioDetailView({ id }: { id: string }) {
               <>
               <ScrollHint />
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[500px] text-sm">
+                <table className="w-full min-w-[560px] text-sm">
                   <thead>
                     <tr className="border-b border-black/10 text-xs text-foreground/50 dark:border-white/15">
                       <th className="p-2 text-left">Symbol</th>
+                      <th className="p-2 text-left">Trend</th>
                       <th className="p-2 text-right">Qty</th>
                       <th className="p-2 text-right">Avg Cost</th>
                       <th className="p-2 text-right">Price</th>
@@ -706,13 +779,23 @@ export default function SimulatedPortfolioDetailView({ id }: { id: string }) {
                   </thead>
                   <tbody>
                     {holdings.map((h) => (
-                      <tr key={`${h.assetType}-${h.symbol}`} className="border-t border-black/5 dark:border-white/10">
+                      <tr
+                        key={`${h.assetType}-${h.symbol}`}
+                        className="border-t border-black/5 transition-colors duration-150 ease-out hover:bg-foreground/[0.03] dark:border-white/10"
+                      >
                         <td className="p-2 font-medium text-foreground">
                           {h.symbol}
                           {h.priceUnavailable && (
                             <span className="ml-1 text-[10px] text-foreground/40" title="Live price unavailable right now — showing book value">
                               (est.)
                             </span>
+                          )}
+                        </td>
+                        <td className="w-20 p-2">
+                          {holdingHistories[h.symbol] ? (
+                            <MiniLineChart data={holdingHistories[h.symbol]} height={28} />
+                          ) : (
+                            <span className="text-[10px] text-foreground/30">—</span>
                           )}
                         </td>
                         <td className="p-2 text-right text-foreground/70">{h.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
@@ -731,43 +814,62 @@ export default function SimulatedPortfolioDetailView({ id }: { id: string }) {
               </>
             )}
           </section>
+          </RevealOnScroll>
 
+          <RevealOnScroll delayMs={140}>
           <section className={cardClass("neutral", { extra: "flex flex-col gap-3 p-4" })}>
             <h2 className="text-lg font-semibold text-foreground">Trade</h2>
             <TradeForm portfolioId={portfolio.id} holdings={holdings} onTraded={() => setRefreshToken((t) => t + 1)} />
           </section>
+          </RevealOnScroll>
         </div>
 
-        <section className={cardClass("neutral", { extra: "flex flex-col gap-3 p-4" })}>
+        <RevealOnScroll delayMs={180}>
+        <section key={refreshToken} className={cardClass("neutral", { extra: "flex flex-col gap-3 p-4 animate-nav-item-fade-in motion-reduce:animate-none" })}>
           <h2 className="text-lg font-semibold text-foreground">Recent Activity</h2>
           {recentTransactions.length === 0 ? (
             <p className="rounded-md bg-foreground/5 px-3 py-2 text-xs text-foreground/50">No trades yet.</p>
           ) : (
-            <>
-            <ScrollHint />
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[600px] text-sm">
-                <thead>
-                  <tr className="border-b border-black/10 text-xs text-foreground/50 dark:border-white/15">
-                    <th className="p-2 text-left">Symbol</th>
-                    <th className="p-2 text-left">Type</th>
-                    <th className="p-2 text-left">Qty</th>
-                    <th className="p-2 text-right">Price</th>
-                    <th className="p-2 text-right">Total</th>
-                    <th className="p-2 text-right">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentTransactions.map((tx) => (
-                    <TransactionRow key={tx.id} tx={tx} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            </>
+            <ul className="flex flex-col">
+              {recentTransactions.map((tx, i) => {
+                const isBuy = tx.transactionType === "buy";
+                return (
+                  <li
+                    key={tx.id}
+                    className={`flex items-center gap-3 py-2.5 transition-colors duration-150 ease-out hover:bg-foreground/[0.03] ${
+                      i > 0 ? "border-t border-black/5 dark:border-white/10" : ""
+                    }`}
+                  >
+                    <span
+                      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                        isBuy ? "bg-green-400/10 text-green-500" : "bg-red-400/10 text-red-500"
+                      }`}
+                    >
+                      {isBuy ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground">
+                        {formatTransactionType(tx.transactionType)} {tx.symbol}
+                      </p>
+                      <p className="text-xs text-foreground/50">
+                        {tx.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 })} @ {currencyFormatter.format(tx.price)}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-medium text-foreground">{currencyFormatter.format(tx.totalValue)}</p>
+                      <p className="text-[11px] text-foreground/40">
+                        {new Date(tx.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </section>
+        </RevealOnScroll>
 
+        <RevealOnScroll delayMs={220}>
         <section className={cardClass("neutral", { extra: "flex flex-col gap-3 p-4" })}>
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-foreground">Full Transaction History</h2>
@@ -775,14 +877,14 @@ export default function SimulatedPortfolioDetailView({ id }: { id: string }) {
               <button
                 type="button"
                 onClick={() => setSortKey("date")}
-                className={`rounded-md border px-3 py-2 ${sortKey === "date" ? "border-indigo-400/50 text-indigo-400" : "border-black/10 text-foreground/50 dark:border-white/15"}`}
+                className={`rounded-md border px-2.5 py-1.5 font-medium transition-colors duration-150 ease-out ${sortKey === "date" ? "border-indigo-400/50 text-indigo-400" : "border-black/10 text-foreground/50 hover:border-black/25 dark:border-white/15"}`}
               >
                 By Date
               </button>
               <button
                 type="button"
                 onClick={() => setSortKey("value")}
-                className={`rounded-md border px-3 py-2 ${sortKey === "value" ? "border-indigo-400/50 text-indigo-400" : "border-black/10 text-foreground/50 dark:border-white/15"}`}
+                className={`rounded-md border px-2.5 py-1.5 font-medium transition-colors duration-150 ease-out ${sortKey === "value" ? "border-indigo-400/50 text-indigo-400" : "border-black/10 text-foreground/50 hover:border-black/25 dark:border-white/15"}`}
               >
                 By Value
               </button>
@@ -815,6 +917,7 @@ export default function SimulatedPortfolioDetailView({ id }: { id: string }) {
             </>
           )}
         </section>
+        </RevealOnScroll>
 
         <SimulatedTradingDisclaimer />
       </div>
