@@ -221,12 +221,42 @@ export default function EarningsDetailModal({ entry, onClose }: { entry: Earning
         if (!response.ok) throw new Error("request failed");
         const body = await response.json();
         const list: Article[] = Array.isArray(body?.articles) ? body.articles : [];
-        // Earnings-relevant articles float to the top; everything else
-        // keeps its existing recency order beneath them — never hides
-        // general ticker news just because nothing earnings-specific
-        // exists yet.
-        const sorted = [...list].sort((a, b) => Number(isEarningsRelevant(b)) - Number(isEarningsRelevant(a)));
+        // A Noble Generated News article (if one exists for this ticker) is
+        // always pinned first, ahead of earnings-relevance — it's the one
+        // source we control end-to-end, so it should never just happen to
+        // land wherever recency/relevance sorting puts it. Earnings-relevant
+        // real articles float to the top of what's left; everything else
+        // keeps its existing recency order beneath that — never hides
+        // general ticker news just because nothing earnings-specific exists.
+        const sorted = [...list].sort((a, b) => {
+          // Real articles omit isAiGenerated entirely rather than setting it
+          // false, so Number(a.isAiGenerated) is NaN for them — NaN
+          // arithmetic in a sort comparator silently no-ops (V8 treats it
+          // like 0), which let AI-generated articles slip past unpinned.
+          // Boolean(...) first avoids that regardless of whether the field
+          // is missing, false, or true.
+          const aiDiff = Number(Boolean(b.isAiGenerated)) - Number(Boolean(a.isAiGenerated));
+          if (aiDiff !== 0) return aiDiff;
+          return Number(isEarningsRelevant(b)) - Number(isEarningsRelevant(a));
+        });
         if (!cancelled) setArticles(sorted);
+
+        // No Noble Generated News article exists for this ticker yet —
+        // trigger generation the same fire-and-forget way
+        // app/news/page.tsx already does for personalized Simulated
+        // Portfolio holdings coverage (same underlying ensureArticleForTicker
+        // engine, just a different, auth-free trigger for a specific ticker
+        // — see app/api/generated-news/ensure-ticker/route.ts). Never
+        // awaited: a live Claude generation must not block this modal.
+        // If it completes, it'll show up on a later view; if it fails the
+        // fact-check/strategy-guard gates, it correctly stays absent.
+        if (!cancelled && !sorted.some((a) => a.isAiGenerated)) {
+          fetch("/api/generated-news/ensure-ticker", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ticker: entry.symbol, displayName: entry.name }),
+          }).catch(() => {});
+        }
       } catch {
         if (!cancelled) setArticles([]);
       }
@@ -236,7 +266,7 @@ export default function EarningsDetailModal({ entry, onClose }: { entry: Earning
     return () => {
       cancelled = true;
     };
-  }, [entry.symbol]);
+  }, [entry.symbol, entry.name]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
