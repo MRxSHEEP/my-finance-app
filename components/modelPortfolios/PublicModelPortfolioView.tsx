@@ -18,7 +18,8 @@ const compactCurrencyFormatter = new Intl.NumberFormat("en-US", {
 // (SimulatedPerformanceChart), which takes fully-resolved data as props and
 // has no awareness of auth/ownership at all.
 export default function PublicModelPortfolioView({ view }: { view: PublicShareView }) {
-  const isUp = view.totalValue - view.notionalBase >= 0;
+  const hasReturn = view.totalReturnPercent !== null;
+  const isUp = hasReturn && view.totalReturnPercent! >= 0;
   // Derived from the performance series' own first point (the portfolio's
   // creation date) rather than adding a separate createdAt field to the
   // public response shape — one less field on the explicit allow-list.
@@ -39,10 +40,17 @@ export default function PublicModelPortfolioView({ view }: { view: PublicShareVi
           </div>
           <div className={cardClass("neutral", { extra: "flex flex-col gap-1 p-4" })}>
             <span className="text-xs text-foreground/50">Total Return</span>
-            <p className={`text-xl font-bold ${isUp ? "text-green-500" : "text-red-500"}`}>
-              {isUp ? "+" : ""}
-              {view.totalReturnPercent.toFixed(2)}%
-            </p>
+            {hasReturn ? (
+              <p className={`text-xl font-bold ${isUp ? "text-green-500" : "text-red-500"}`}>
+                {isUp ? "+" : ""}
+                {view.totalReturnPercent!.toFixed(2)}%
+              </p>
+            ) : (
+              <p className="text-sm font-medium text-foreground/50">
+                Tracking since{" "}
+                {new Date(view.trackingStartsAt!).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+              </p>
+            )}
           </div>
         </section>
 
@@ -50,6 +58,7 @@ export default function PublicModelPortfolioView({ view }: { view: PublicShareVi
           portfolio={{ createdAt, startingBalance: view.notionalBase }}
           performanceSeries={view.performanceSeries}
           totalValue={view.totalValue}
+          trackingStartsAt={view.trackingStartsAt}
         />
 
         <section className={cardClass("neutral", { extra: "flex flex-col gap-3 p-4" })}>

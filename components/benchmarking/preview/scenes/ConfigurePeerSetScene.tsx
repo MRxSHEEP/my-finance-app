@@ -11,9 +11,11 @@ const PEERS = DEMO_TICKERS.filter((t) => !t.isOwnCompany);
 // Mirrors PeerSetConfigForm.tsx's markup/classes exactly, including reusing
 // the REAL TickerAutocompleteInput component (not a recreation) — its
 // suggestion dropdown hits /api/stock/suggestions, a public,
-// unauthenticated endpoint, so it's safe for a signed-out visitor and
-// demonstrates the actual validated-ticker fix this form now has, rather
-// than a lookalike raw text input.
+// unauthenticated endpoint, so it's safe for a signed-out visitor. Note:
+// this demonstrates the real autocomplete UI, not an enforced validation
+// guarantee — the underlying field still accepts untouched free text (see
+// the fix-queue item for this), so don't reintroduce a "validated"/"always
+// real" claim here or in the walkthrough caption until that's actually true.
 export default function ConfigurePeerSetScene() {
   const [ownTicker, setOwnTicker] = useState(OWN.ticker);
   const [peerRows, setPeerRows] = useState(PEERS.map((p) => p.ticker));

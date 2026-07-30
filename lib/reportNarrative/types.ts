@@ -6,16 +6,6 @@
 // discarded once the response is sent. Only the advisor's own
 // edited/approved text (Report.narrativeCommentary) is ever persisted.
 
-// Reused verbatim when a holding's ticker already has a real /signals
-// TradeSignal row — same shape as lib/signals/types.ts's GeneratedSignal,
-// minus the fields this feature has no use for.
-export interface ExistingSignalContext {
-  direction: string;
-  confidence: number;
-  rationale: string;
-  generatedAt: string;
-}
-
 // Condensed from lib/signals/types.ts's SignalDataSnapshot — only the
 // categories worth citing in a short portfolio-commentary paragraph, not
 // the full technical/news/insider detail /signals itself renders.
@@ -38,12 +28,14 @@ export interface SimulatedHoldingContext {
   // stored dataSnapshot when one exists for this ticker, otherwise from a
   // fresh lib/signals/gather.ts call. Null only when neither source
   // produced anything (e.g. a crypto/commodity holding, where these
-  // stock-specific categories don't apply).
+  // stock-specific categories don't apply). Deliberately excludes that
+  // signal's own direction/confidence/rationale — this feature drafts
+  // portfolio-performance commentary, not investment calls, and citing an
+  // existing signal's bearish/bullish label here (even faithfully) is
+  // exactly the gap a live test found: Commentary restating "bearish" isn't
+  // a trade suggestion the strategy-guard denylist catches, but it's still
+  // directional content this feature has no business relaying.
   freshData: FreshTickerContext | null;
-  // Populated ONLY when a real, persisted TradeSignal row exists for this
-  // ticker — i.e. the actual live /signals feature already produced a
-  // verdict for it, not a lookalike regenerated for this feature.
-  existingSignal: ExistingSignalContext | null;
 }
 
 export interface ManualHoldingContext {

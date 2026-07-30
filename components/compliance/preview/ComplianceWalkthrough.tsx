@@ -44,7 +44,7 @@ const SCENES: SceneDef[] = [
     key: "flag",
     label: "Automatic flag",
     caption:
-      "Every disclosed trade is automatically checked against real insider-filing activity — risky trades surface the moment they're reported, not months later in an audit.",
+      "Every disclosed trade's ticker is automatically matched against the restricted list and recent insider-filing activity — a match surfaces the moment it's reported, not months later in an audit.",
     Component: FlagScene,
   },
   {
@@ -63,7 +63,7 @@ const SCENES: SceneDef[] = [
     key: "audit",
     label: "Audit log",
     caption:
-      "Every approval, flag, and list change lands in one immutable record — ready to hand a regulator without weeks of reconstruction.",
+      "Every approval, flag, and list change is logged to one immutable audit trail — a running record you can export any time.",
     Component: AuditLogScene,
   },
 ];

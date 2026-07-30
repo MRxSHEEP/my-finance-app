@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireOrgRole } from "@/lib/reportingAuth";
 import { computeTickerMetrics } from "@/lib/benchmarking/metrics";
+import { validateRealTicker } from "@/lib/resolveTicker";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +56,22 @@ export async function PUT(request: NextRequest) {
   }
   if (!ownCompanyTicker && peers.length === 0) {
     return NextResponse.json({ error: "Set an own-company ticker, at least one peer, or both" }, { status: 400 });
+  }
+
+  // Server-side enforcement — TickerAutocompleteInput's suggestions dropdown
+  // is a convenience, not a guarantee; its onChange fires on every keystroke
+  // regardless of whether a suggestion was ever selected. Reject here
+  // rather than silently storing free text with no real data behind it.
+  const tickersToValidate = [ownCompanyTicker, ...peers].filter((t): t is string => Boolean(t));
+  const validations = await Promise.all(tickersToValidate.map((t) => validateRealTicker(t)));
+  const invalid = validations
+    .map((v, i) => (v.valid ? null : tickersToValidate[i]))
+    .filter((t): t is string => t !== null);
+  if (invalid.length > 0) {
+    return NextResponse.json(
+      { error: `Not a recognized ticker symbol: ${invalid.join(", ")}` },
+      { status: 400 }
+    );
   }
 
   const peerSet = await prisma.benchmarkPeerSet.upsert({

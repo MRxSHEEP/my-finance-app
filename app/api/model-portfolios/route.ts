@@ -3,11 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { requireOrgMembership } from "@/lib/orgAuth";
 import { requireOrgRole } from "@/lib/reportingAuth";
 import { getCurrentPrice, type AssetType } from "@/lib/simulatedTrading/pricing";
+import { WEIGHT_SUM_EPSILON, NOTIONAL_BASE, todayAtMidnightUtc } from "@/lib/modelPortfolios/constants";
 
 export const dynamic = "force-dynamic";
 
 const ASSET_TYPES = ["stock", "commodity", "crypto"];
-const WEIGHT_SUM_EPSILON = 0.01;
 
 interface HoldingInput {
   assetType: string;
@@ -109,11 +109,28 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // createdAt keeps full precision (the exact moment the record was made),
+  // but effectiveFrom is day-granular (midnight UTC) — matching, not full
+  // timestamp precision, since that's the same granularity every other
+  // effectiveFrom/effectiveTo boundary in this feature uses (the edit route
+  // closes a row with todayAtMidnightUtc() too, and the cron's own
+  // effectiveFrom <= today filter compares against midnight). Mixing a
+  // full-precision effectiveFrom here with midnight-truncated boundaries
+  // elsewhere would make a same-day edit produce effectiveTo (midnight)
+  // earlier than effectiveFrom (this afternoon) — an invalid interval that
+  // a same-day cron re-run would silently exclude from "active as of
+  // today." lib/modelPortfolios/detail.ts's hasFullHistory check still
+  // works the same way: midnight-of-creation-day is always <= createdAt
+  // itself, same-day or not.
+  const now = new Date();
+  const today = todayAtMidnightUtc();
+
   const modelPortfolio = await prisma.modelPortfolio.create({
     data: {
       organizationId: ctx.organizationId,
       createdByUserId: ctx.userId,
       name,
+      createdAt: now,
       holdings: {
         createMany: {
           data: validated.holdings.map((h, i) => ({
@@ -122,12 +139,32 @@ export async function POST(request: NextRequest) {
             name: h.name ?? null,
             targetWeightPercent: h.targetWeightPercent,
             priceAtCreation: priceResults[i]!.price,
+            effectiveFrom: today,
           })),
         },
       },
     },
     include: { holdings: true },
   });
+
+  // Seeds day 0 — both the portfolio-level snapshot (so tomorrow's cron
+  // finds a real "yesterday" value instead of special-casing "none exists
+  // yet") and each holding's own day-0 price (so tomorrow's chained return
+  // has a real prior-day price to compare against, not just priceAtCreation
+  // sitting unrecorded in ModelPortfolioHolding).
+  await prisma.$transaction([
+    prisma.modelPortfolioSnapshot.create({
+      data: { modelPortfolioId: modelPortfolio.id, asOfDate: today, value: NOTIONAL_BASE },
+    }),
+    prisma.modelPortfolioHoldingSnapshot.createMany({
+      data: validated.holdings.map((h, i) => ({
+        modelPortfolioId: modelPortfolio.id,
+        symbol: h.symbol,
+        asOfDate: today,
+        price: priceResults[i]!.price,
+      })),
+    }),
+  ]);
 
   return NextResponse.json({ modelPortfolio });
 }

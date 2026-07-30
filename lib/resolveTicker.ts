@@ -21,7 +21,7 @@ const ALIASES: Record<string, string> = {
 // Bristol-Myers Squibb. Re-ranking /search's results can't recover an
 // answer /search never returned in the first place, so this checks the
 // input itself before ever trusting a fuzzy fallback.
-async function isValidTicker(symbol: string, apiKey: string): Promise<boolean> {
+export async function isValidTicker(symbol: string, apiKey: string): Promise<boolean> {
   try {
     const response = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`);
     if (!response.ok) return false;
@@ -33,6 +33,31 @@ async function isValidTicker(symbol: string, apiKey: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// Server-side enforcement gate for every route that accepts a ticker via
+// TickerAutocompleteInput.tsx (Peer Benchmarking's peer-set, Preclearance,
+// Restricted List, Trade Disclosures) — the suggestions dropdown in that
+// component is a convenience, not a guarantee, since its onChange fires on
+// every keystroke whether or not a suggestion was ever selected. This is
+// the actual trust boundary: call it before persisting any user-submitted
+// ticker string, and reject the request if it comes back invalid, rather
+// than silently storing free text (that bug — "GOOGLE" persisted as-is,
+// resolving to no real data — is exactly what let a restricted-list check
+// silently miss a real match).
+//
+// Fails OPEN only when FINNHUB_API_KEY itself isn't configured (mirrors
+// resolveTickerSymbol's own fallback below, for the same reason: a missing
+// key means this environment has no way to check at all, not that a
+// specific input looked suspicious) — a genuine "not a real ticker" result,
+// or a transient Finnhub outage, both fail CLOSED via isValidTicker's own
+// catch-returns-false behavior above.
+export async function validateRealTicker(ticker: string): Promise<{ valid: true } | { valid: false; error: string }> {
+  const apiKey = process.env.FINNHUB_API_KEY;
+  if (!apiKey) return { valid: true };
+
+  const ok = await isValidTicker(ticker, apiKey);
+  return ok ? { valid: true } : { valid: false, error: `"${ticker}" is not a recognized ticker symbol` };
 }
 
 // Resolves free-form user input (a ticker like "GOOGL" or a company name

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { cardClass } from "@/lib/cardStyles";
-import { NOTIONAL_BASE } from "@/lib/modelPortfolios/constants";
+import { NOTIONAL_BASE, WEIGHT_SUM_EPSILON } from "@/lib/modelPortfolios/constants";
 import SimulatedPerformanceChart from "@/components/portfolio/SimulatedPerformanceChart";
 import ModelPortfolioHoldingsEditor, { type HoldingRow } from "@/components/modelPortfolios/ModelPortfolioHoldingsEditor";
 import ShareLinkPanel from "@/components/modelPortfolios/ShareLinkPanel";
@@ -25,9 +25,14 @@ interface Detail {
   modelPortfolio: { id: string; name: string; createdAt: string; updatedAt: string };
   holdings: HoldingOut[];
   totalValue: number;
-  totalReturn: number;
-  totalReturnPercent: number;
+  // Null when this portfolio predates chain-linked weight-history tracking
+  // — its old since-inception return was computed under a formula a weight
+  // edit could retroactively rewrite, so it's suppressed rather than shown
+  // with a caveat (see lib/modelPortfolios/detail.ts).
+  totalReturn: number | null;
+  totalReturnPercent: number | null;
   performanceSeries: { date: string; value: number }[];
+  trackingStartsAt: string | null;
   shareLink: { token: string; active: boolean } | null;
 }
 
@@ -102,7 +107,7 @@ export default function ModelPortfolioDetailView({ id }: { id: string }) {
       return setEditError("Every holding needs a symbol and a positive weight.");
     }
     const weightSum = holdings.reduce((s, h) => s + h.targetWeightPercent, 0);
-    if (Math.abs(weightSum - 100) > 0.01) {
+    if (Math.abs(weightSum - 100) > WEIGHT_SUM_EPSILON) {
       return setEditError(`Target weights must sum to 100% (currently ${weightSum.toFixed(2)}%).`);
     }
 
@@ -141,8 +146,9 @@ export default function ModelPortfolioDetailView({ id }: { id: string }) {
     );
   }
 
-  const { modelPortfolio, holdings, totalValue, totalReturn, totalReturnPercent, performanceSeries, shareLink } = detail;
-  const isUp = totalReturn >= 0;
+  const { modelPortfolio, holdings, totalValue, totalReturn, totalReturnPercent, performanceSeries, trackingStartsAt, shareLink } = detail;
+  const hasReturn = totalReturn !== null;
+  const isUp = hasReturn && totalReturn! >= 0;
 
   return (
     <main className="flex flex-1 flex-col items-center gap-6 p-8 pt-16">
@@ -210,14 +216,23 @@ export default function ModelPortfolioDetailView({ id }: { id: string }) {
               </div>
               <div className={cardClass("neutral", { extra: "flex flex-col gap-1 p-4" })}>
                 <span className="text-xs text-foreground/50">Total Return</span>
-                <p className={`text-xl font-bold ${isUp ? "text-green-500" : "text-red-500"}`}>
-                  {isUp ? "+" : ""}
-                  {currencyFormatter.format(totalReturn)}
-                </p>
-                <span className={`text-[11px] ${isUp ? "text-green-500" : "text-red-500"}`}>
-                  {isUp ? "+" : ""}
-                  {totalReturnPercent.toFixed(2)}%
-                </span>
+                {hasReturn ? (
+                  <>
+                    <p className={`text-xl font-bold ${isUp ? "text-green-500" : "text-red-500"}`}>
+                      {isUp ? "+" : ""}
+                      {currencyFormatter.format(totalReturn!)}
+                    </p>
+                    <span className={`text-[11px] ${isUp ? "text-green-500" : "text-red-500"}`}>
+                      {isUp ? "+" : ""}
+                      {totalReturnPercent!.toFixed(2)}%
+                    </span>
+                  </>
+                ) : (
+                  <p className="text-sm font-medium text-foreground/50">
+                    Tracking since{" "}
+                    {new Date(trackingStartsAt!).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  </p>
+                )}
               </div>
               <div className={cardClass("neutral", { extra: "flex flex-col gap-1 p-4" })}>
                 <span className="text-xs text-foreground/50">Created</span>
@@ -230,6 +245,7 @@ export default function ModelPortfolioDetailView({ id }: { id: string }) {
             <SimulatedPerformanceChart
               portfolio={{ createdAt: modelPortfolio.createdAt, startingBalance: NOTIONAL_BASE }}
               performanceSeries={performanceSeries}
+              trackingStartsAt={trackingStartsAt}
               totalValue={totalValue}
             />
 

@@ -54,9 +54,13 @@ interface HoldingInput {
 }
 
 // A real, persisted TradeSignal row (today's actual /signals output) is
-// preferred over a fresh gather — it's read directly with no extra fetch.
-// Only hit lib/signals/gather.ts's gatherTickerData when no such row
-// exists for this ticker, which in practice is most non-mega-cap holdings.
+// preferred over a fresh gather when one exists — its own stored
+// dataSnapshot is read directly with no extra fetch. Only hit
+// lib/signals/gather.ts's gatherTickerData when no such row exists for this
+// ticker, which in practice is most non-mega-cap holdings. Deliberately
+// never surfaces the TradeSignal row's own direction/confidence/rationale
+// (see the comment on SimulatedHoldingContext.freshData in types.ts) — only
+// the underlying factual data it was computed from.
 async function gatherHoldingContext(holding: HoldingInput, origin: string): Promise<SimulatedHoldingContext> {
   const base = {
     ticker: holding.symbol,
@@ -71,29 +75,20 @@ async function gatherHoldingContext(holding: HoldingInput, origin: string): Prom
     // Earnings/analyst-rating data is stock-specific — a commodity or
     // crypto holding never had a real TradeSignal row or a gatherTickerData
     // category to draw from, so don't spend a fetch pretending otherwise.
-    return { ...base, freshData: null, existingSignal: null };
+    return { ...base, freshData: null };
   }
 
   const existing = await prisma.tradeSignal.findUnique({ where: { ticker: holding.symbol } });
   if (existing) {
     const snapshot = existing.dataSnapshot as unknown as SignalDataSnapshot;
-    return {
-      ...base,
-      freshData: toFreshTickerContext(snapshot),
-      existingSignal: {
-        direction: existing.direction,
-        confidence: existing.confidence,
-        rationale: existing.rationale,
-        generatedAt: existing.generatedAt.toISOString(),
-      },
-    };
+    return { ...base, freshData: toFreshTickerContext(snapshot) };
   }
 
   try {
     const data = await withTimeout(gatherTickerData(holding.symbol, origin), TICKER_GATHER_TIMEOUT_MS);
-    return { ...base, freshData: data ? toFreshTickerContext(data) : null, existingSignal: null };
+    return { ...base, freshData: data ? toFreshTickerContext(data) : null };
   } catch {
-    return { ...base, freshData: null, existingSignal: null };
+    return { ...base, freshData: null };
   }
 }
 

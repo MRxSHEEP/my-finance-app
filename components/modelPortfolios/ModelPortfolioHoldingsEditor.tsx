@@ -1,5 +1,7 @@
 "use client";
 
+import { WEIGHT_SUM_EPSILON } from "@/lib/modelPortfolios/constants";
+
 export interface HoldingRow {
   assetType: "stock" | "commodity" | "crypto";
   symbol: string;
@@ -18,7 +20,7 @@ interface ModelPortfolioHoldingsEditorProps {
 // submitting whether they're at 100%.
 export default function ModelPortfolioHoldingsEditor({ rows, onChange }: ModelPortfolioHoldingsEditorProps) {
   const weightSum = rows.reduce((sum, r) => sum + (Number(r.targetWeightPercent) || 0), 0);
-  const atTarget = Math.abs(weightSum - 100) <= 0.01;
+  const atTarget = Math.abs(weightSum - 100) <= WEIGHT_SUM_EPSILON;
 
   function updateRow(index: number, patch: Partial<HoldingRow>) {
     onChange(rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));

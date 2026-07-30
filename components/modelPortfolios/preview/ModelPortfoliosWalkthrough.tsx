@@ -10,10 +10,13 @@ import ClientViewScene from "@/components/modelPortfolios/preview/scenes/ClientV
 
 // Byte-for-byte the same shell as ComplianceWalkthrough.tsx /
 // ReportingWalkthrough.tsx (scene-in animation, caption, pause/play/manual
-// nav, dot indicators, CTA) — same "Demo — sample data" badge, same
-// signed-out-only placement (see app/portfolios/models/page.tsx), same
-// public-preview behavior. Only the SCENES list and per-scene sample data
-// differ.
+// nav, dot indicators, CTA), same signed-out-only placement (see
+// app/portfolios/models/page.tsx), same public-preview behavior. The badge
+// text is its own thing here, not shared — see the note next to it below
+// (this scene's own sampleData.ts uses real, frozen quotes, unlike
+// Compliance/Reporting's fictional data, so the badge says so explicitly
+// rather than reusing "Demo — sample data" verbatim). Only the SCENES list
+// and per-scene sample data differ.
 const SCENE_DURATION_MS = 6500;
 
 interface SceneDef {
@@ -46,7 +49,7 @@ const SCENES: SceneDef[] = [
     key: "share-link",
     label: "Share a read-only link",
     caption:
-      "A secure, no-login link builds client trust and cuts down the \"can you send me an update\" emails — they see real performance whenever they want, never your other portfolios.",
+      "A secure, no-login link builds client trust and cuts down the \"can you send me an update\" emails — they can check in on this portfolio whenever they want, never your other portfolios.",
     Component: ShareLinkScene,
   },
   {
@@ -78,8 +81,13 @@ export default function ModelPortfoliosWalkthrough() {
   return (
     <div className="flex w-full max-w-4xl flex-col gap-4">
       <div className="relative">
+        {/* Real, live quotes (see this scene's sampleData.ts — VOO/QQQ/VNQ
+            "current" prices), frozen at a point in time rather than
+            fictional — the badge says so explicitly instead of reusing
+            "Demo — sample data" verbatim, since that phrasing would
+            misrepresent this data as invented. */}
         <span className="absolute -top-3 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-full border border-black/10 bg-background px-3 py-1 text-xs font-medium text-foreground/50 shadow-sm dark:border-white/15">
-          Demo — sample data
+          Demo — real data, frozen Jul 28, 2026
         </span>
         <div className="min-h-[22rem] overflow-hidden rounded-lg border border-black/10 bg-foreground/[0.02] p-6 pt-8 dark:border-white/15">
           <div key={index} className="animate-scene-in motion-reduce:animate-none">

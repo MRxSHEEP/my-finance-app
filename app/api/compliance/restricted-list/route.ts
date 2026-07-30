@@ -3,6 +3,7 @@ import { requireOrgMembership, requireOrgRole } from "@/lib/complianceAuth";
 import { prisma } from "@/lib/prisma";
 import { logComplianceAction } from "@/lib/compliance/auditLog";
 import { hasAtLeastRole } from "@/lib/compliance/roles";
+import { validateRealTicker } from "@/lib/resolveTicker";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,15 @@ export async function POST(request: NextRequest) {
   const notes = typeof body?.notes === "string" ? body.notes.trim() : null;
 
   if (!ticker) return NextResponse.json({ error: "Ticker is required" }, { status: 400 });
+
+  // Server-side enforcement — this is the exact-string-match side of the
+  // restricted-list check (lib/compliance/flagging.ts), so an unresolved
+  // free-text entry here (e.g. "GOOGLE" instead of "GOOGL") would silently
+  // fail to catch any employee trade in the real ticker at all.
+  const tickerCheck = await validateRealTicker(ticker);
+  if (!tickerCheck.valid) {
+    return NextResponse.json({ error: tickerCheck.error }, { status: 400 });
+  }
 
   const existing = await prisma.restrictedListEntry.findFirst({
     where: { organizationId: ctx.organizationId, ticker, removedAt: null },

@@ -718,10 +718,11 @@ model ModelPortfolio {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  holdings     ModelPortfolioHolding[]
-  snapshots    ModelPortfolioSnapshot[]
-  shareLink    ModelPortfolioShareLink?
+  organization     Organization                    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  holdings         ModelPortfolioHolding[]
+  snapshots        ModelPortfolioSnapshot[]
+  holdingSnapshots ModelPortfolioHoldingSnapshot[]
+  shareLink        ModelPortfolioShareLink?
 
   @@index([organizationId, createdByUserId])
 }
@@ -736,20 +737,41 @@ model ModelPortfolioHolding {
   name      String?
   // Holdings on one portfolio must sum to 100 (±0.01) — validated server-side.
   targetWeightPercent Float
-  // Captured via getCurrentPrice when the holding is added/replaces an old
-  // one — the fixed reference point in the driftless value formula. Never
-  // rewritten in place; editing weights on an EXISTING holding keeps its
-  // original priceAtCreation (see the plan's "forward-only" note).
+  // Captured via getCurrentPrice the first time this symbol is added —
+  // carried forward unchanged across later weight-only edits to the same
+  // symbol (see effectiveFrom/effectiveTo below), refreshed only when the
+  // symbol is removed and re-added as a genuinely new position.
   priceAtCreation Float
   createdAt       DateTime @default(now())
+  // Effective-dated versioning (mirrors RestrictedListEntry's soft-delete
+  // pattern) — an edit closes the previous row (effectiveTo set) and
+  // inserts a new one (effectiveFrom = today) rather than hard-deleting, so
+  // a valuation for any past day can look up exactly which weights were
+  // actually active then. Null effectiveTo = still the current/active row.
+  // Existing rows predating this migration got effectiveFrom backfilled to
+  // the migration's own run time, not their real (unknowable) start date —
+  // lib/modelPortfolios/detail.ts's hasFullHistory check uses exactly that
+  // gap (effectiveFrom later than the portfolio's own createdAt) to detect
+  // and suppress an unreliable pre-migration return rather than display one.
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
 
   modelPortfolio ModelPortfolio @relation(fields: [modelPortfolioId], references: [id], onDelete: Cascade)
 
-  @@unique([modelPortfolioId, assetType, symbol])
+  // No DB-level uniqueness on "one active row per symbol" — a partial index
+  // would be needed to express uniqueness scoped to effectiveTo IS NULL
+  // rows only (Postgres treats NULLs as distinct, so a plain unique
+  // constraint including effectiveTo wouldn't catch two simultaneously-
+  // active rows for the same symbol). Enforced at the application layer
+  // instead, same trust boundary already used for the weight-sum-to-100 rule.
+  @@index([modelPortfolioId, effectiveFrom])
 }
 
 // Daily hypothetical-value snapshot — mirrors SimulatedPortfolioSnapshot's
 // exact shape/idempotency convention (see app/api/model-portfolios/snapshot/route.ts).
+// Chain-linked: a given day's value is prior-day's stored value times that
+// day's weighted return, never recomputed from inception — see
+// lib/modelPortfolios/valuation.ts.
 model ModelPortfolioSnapshot {
   id               String   @id @default(cuid())
   modelPortfolioId String
@@ -760,6 +782,24 @@ model ModelPortfolioSnapshot {
   modelPortfolio ModelPortfolio @relation(fields: [modelPortfolioId], references: [id], onDelete: Cascade)
 
   @@unique([modelPortfolioId, asOfDate])
+}
+
+// Per-holding daily closing price, parallel to ModelPortfolioSnapshot's
+// per-portfolio total — the chain-linked valuation needs each holding's OWN
+// prior-day price to compute that day's weighted return, not just the
+// portfolio's prior total value.
+model ModelPortfolioHoldingSnapshot {
+  id               String   @id @default(cuid())
+  modelPortfolioId String
+  symbol           String
+  asOfDate         DateTime
+  price            Float
+  createdAt        DateTime @default(now())
+
+  modelPortfolio ModelPortfolio @relation(fields: [modelPortfolioId], references: [id], onDelete: Cascade)
+
+  @@unique([modelPortfolioId, symbol, asOfDate])
+  @@index([modelPortfolioId, asOfDate])
 }
 
 // The public read-only share-link security surface — one row per

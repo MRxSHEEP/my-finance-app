@@ -1,7 +1,7 @@
 // App-computed dedupe key for TrackerTransaction rows — mirrors the
 // existing string-concat dedupe convention already used in
-// app/api/insider-activity/route.ts and app/api/stock/insiders/route.ts,
-// rather than a Prisma composite @@unique over nullable columns (Postgres
+// app/api/stock/insiders/route.ts, rather than a Prisma composite
+// @@unique over nullable columns (Postgres
 // treats NULLs as distinct in a unique constraint, which would let
 // otherwise-identical rows with a null field slip through as "different").
 export function buildDedupeKey(parts: {

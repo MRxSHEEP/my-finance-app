@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ComplianceReview, PreclearanceReviewContext } from "@/lib/complianceCopilot/types";
+import { checkStrategyLanguage } from "@/lib/earningsSetup/strategyGuard";
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
@@ -87,10 +88,17 @@ function parseReview(raw: string): ComplianceReview | null {
   return { flag, rationale, suggestedNote };
 }
 
-// Never throws — any failure (missing key, network, malformed response)
-// resolves to null so the caller can surface a clean "unavailable" state.
-// Same graceful-degradation shape as every other Anthropic call in this
-// app (see lib/signals/generate.ts).
+// Never throws — any failure (missing key, network, malformed response, or
+// forbidden strategy/trade-direction language) resolves to null so the
+// caller can surface a clean "unavailable" state. Same graceful-degradation
+// shape as every other Anthropic call in this app (see
+// lib/signals/generate.ts). The strategy-guard check is a mechanical,
+// code-level safety net independent of the prompt's own instructions — the
+// prompt above already asks Claude to describe, never decide or recommend,
+// but a prompt instruction alone is never a guarantee (same reasoning as
+// lib/earningsSetup/strategyGuard.ts and lib/reportNarrative/generate.ts).
+// Checked against both rationale and suggestedNote, since the latter can be
+// copied as-is into the permanent compliance record.
 export async function generateComplianceReview(context: PreclearanceReviewContext): Promise<ComplianceReview | null> {
   if (!process.env.ANTHROPIC_API_KEY) return null;
 
@@ -104,7 +112,18 @@ export async function generateComplianceReview(context: PreclearanceReviewContex
 
     const textBlock = message.content.find((block) => block.type === "text");
     const raw = textBlock?.type === "text" ? textBlock.text.trim() : "";
-    return raw ? parseReview(raw) : null;
+    if (!raw) return null;
+
+    const review = parseReview(raw);
+    if (!review) return null;
+
+    const strategyResult = checkStrategyLanguage(`${review.rationale} ${review.suggestedNote}`);
+    if (!strategyResult.ok) {
+      console.error(`[compliance-copilot] Discarded review for forbidden strategy language: ${strategyResult.matchedTerms.join(", ")}`);
+      return null;
+    }
+
+    return review;
   } catch (err) {
     console.error(`[compliance-copilot] Anthropic request failed: ${err instanceof Error ? err.message : String(err)}`);
     return null;

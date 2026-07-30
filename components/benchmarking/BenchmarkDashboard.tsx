@@ -50,6 +50,28 @@ function computeBest(tickers: DashboardTicker[], key: MetricKey, best: "min" | "
   return best === "max" ? Math.max(...values) : Math.min(...values);
 }
 
+// Builds one point per CALENDAR day across the series' own date range (not
+// just per stored row) so a day with no snapshot row at all — a cron miss,
+// not merely a field that failed to fetch that day — becomes an explicit
+// gap too, same as a day whose row exists but has this metric null. Passed
+// straight to MiniLineChart's own whitespace-point handling, which breaks
+// the line at any null rather than silently connecting across it.
+function buildGapAwareSeries(series: Array<MetricValues & { asOfDate: string }>, key: MetricKey): { time: number; value: number | null }[] {
+  if (series.length === 0) return [];
+
+  const byDate = new Map(series.map((s) => [s.asOfDate.slice(0, 10), s[key]]));
+  const sortedDates = [...byDate.keys()].sort();
+  const start = new Date(sortedDates[0] + "T00:00:00Z");
+  const end = new Date(sortedDates[sortedDates.length - 1] + "T00:00:00Z");
+
+  const points: { time: number; value: number | null }[] = [];
+  for (let d = new Date(start); d.getTime() <= end.getTime(); d.setUTCDate(d.getUTCDate() + 1)) {
+    const dateKey = d.toISOString().slice(0, 10);
+    points.push({ time: Math.floor(d.getTime() / 1000), value: byDate.get(dateKey) ?? null });
+  }
+  return points;
+}
+
 interface BenchmarkDashboardProps {
   organization: OrganizationInfo;
   peerSet: { ownCompanyTicker: string | null; peers: string[] };
@@ -188,19 +210,19 @@ export default function BenchmarkDashboard({ organization, peerSet, onEditPeerSe
                 <h2 className="text-lg font-semibold text-foreground">{def.label} Trend</h2>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
                   {tickers.map((t) => {
-                    const points = t.series
-                      .filter((s) => s[def.key] != null)
-                      .map((s) => ({ time: Math.floor(new Date(s.asOfDate).getTime() / 1000), value: s[def.key] as number }));
+                    const points = buildGapAwareSeries(t.series, def.key);
+                    const realPoints = points.filter((p): p is { time: number; value: number } => p.value !== null);
 
-                    const first = points[0]?.value;
-                    const last = points[points.length - 1]?.value;
+                    const first = realPoints[0]?.value;
+                    const last = realPoints[realPoints.length - 1]?.value;
+                    const lastPointIsGap = points.length > 0 && points[points.length - 1].value === null;
                     // Guard the division, not just the display — a near-zero
                     // starting value (FCF yield hovering around 0%, for
                     // instance) would otherwise produce a meaningless
                     // thousand-percent swing rather than an honestly-omitted
                     // badge, same reasoning as this app's existing
                     // unrealizedGainLossPercent guards.
-                    const percentChange = points.length >= 2 && first !== 0 ? ((last - first) / Math.abs(first)) * 100 : null;
+                    const percentChange = realPoints.length >= 2 && first !== 0 ? ((last - first) / Math.abs(first)) * 100 : null;
 
                     return (
                       <div key={t.ticker} className="flex flex-col gap-1">
@@ -208,7 +230,7 @@ export default function BenchmarkDashboard({ organization, peerSet, onEditPeerSe
                           {t.ticker}
                           {t.isOwnCompany && " (Own)"}
                         </span>
-                        {points.length >= 2 ? (
+                        {realPoints.length >= 2 ? (
                           <>
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-[11px] text-foreground/60">
@@ -216,7 +238,16 @@ export default function BenchmarkDashboard({ organization, peerSet, onEditPeerSe
                               </span>
                               {percentChange !== null && <PercentChangeBadge value={percentChange} />}
                             </div>
-                            <MiniLineChart data={points} height={48} />
+                            {/* Explicit staleness disclosure — the line itself already
+                                breaks at a gap (MiniLineChart's whitespace points), but
+                                a gap on today's own date specifically means the "last"
+                                value above isn't current, which the chart alone doesn't say. */}
+                            {lastPointIsGap && (
+                              <p className="text-[10px] text-amber-600 dark:text-amber-400">
+                                Latest data unavailable — showing the most recent successful update.
+                              </p>
+                            )}
+                            <MiniLineChart data={points} height={48} showTimeAxis />
                           </>
                         ) : (
                           <p className="text-[11px] text-foreground/40">Not enough history yet.</p>

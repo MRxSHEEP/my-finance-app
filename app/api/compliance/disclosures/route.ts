@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { logComplianceAction } from "@/lib/compliance/auditLog";
 import { evaluateTradeForFlags } from "@/lib/compliance/flagging";
 import { hasAtLeastRole } from "@/lib/compliance/roles";
+import { validateRealTicker } from "@/lib/resolveTicker";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,14 @@ export async function POST(request: NextRequest) {
   const tradeDate = new Date(tradeDateRaw);
   if (Number.isNaN(tradeDate.getTime())) {
     return NextResponse.json({ error: "Invalid tradeDate" }, { status: 400 });
+  }
+
+  // Server-side enforcement — evaluateTradeForFlags below matches this
+  // exact string against the restricted list, so an unresolved free-text
+  // ticker would silently produce zero flags even for a real conflict.
+  const tickerCheck = await validateRealTicker(ticker);
+  if (!tickerCheck.valid) {
+    return NextResponse.json({ error: tickerCheck.error }, { status: 400 });
   }
 
   const disclosure = await prisma.tradeDisclosure.create({

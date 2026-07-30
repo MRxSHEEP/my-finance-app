@@ -30,8 +30,22 @@ export default function TickerAutocompleteInput({
 }: TickerAutocompleteInputProps) {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  // Server-side (validateRealTicker in lib/resolveTicker.ts) is the actual
+  // enforcement boundary — this is UI feedback only, so a user typing a
+  // real ticker without clicking the dropdown isn't silently surprised by
+  // a rejection only at submit time.
+  const [unrecognized, setUnrecognized] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const skipNextFetchRef = useRef(false);
+  // Tracked outside state so handleBlur can tell, after its async check
+  // resolves, whether a since-fired click on a suggestion (handleSelect)
+  // already changed the value out from under it — blur fires before click
+  // in the browser's own event order, so without this a stale blur check
+  // can overwrite the correct post-selection state.
+  const latestValueRef = useRef(value);
+  useEffect(() => {
+    latestValueRef.current = value;
+  }, [value]);
 
   useEffect(() => {
     if (skipNextFetchRef.current) {
@@ -88,8 +102,39 @@ export default function TickerAutocompleteInput({
     skipNextFetchRef.current = true;
     setShowSuggestions(false);
     setSuggestions([]);
+    setUnrecognized(false);
     onChange(suggestion.symbol);
     onSelect?.(suggestion.symbol, suggestion.description);
+  }
+
+  // Not the enforcement boundary (validateRealTicker on the server is) —
+  // this only gives feedback before submit, for the common case of a real
+  // ticker typed out in full without clicking the dropdown.
+  async function handleBlur() {
+    const query = value.trim();
+    if (!query) return setUnrecognized(false);
+
+    const alreadyMatches = suggestions.some((s) => s.symbol.toUpperCase() === query.toUpperCase());
+    if (alreadyMatches) return setUnrecognized(false);
+
+    try {
+      const res = await fetch(`/api/stock/suggestions?q=${encodeURIComponent(query)}`);
+      const body = await res.json().catch(() => null);
+      // A selection (or further typing) may have landed while this was in
+      // flight — that path already set its own correct unrecognized state,
+      // so don't clobber it with a check for a value that's no longer current.
+      if (latestValueRef.current.trim().toUpperCase() !== query.toUpperCase()) return;
+      const matches =
+        res.ok &&
+        Array.isArray(body?.suggestions) &&
+        body.suggestions.some((s: Suggestion) => s.symbol?.toUpperCase() === query.toUpperCase());
+      setUnrecognized(!matches);
+    } catch {
+      // Network hiccup — don't flag a real ticker as wrong just because
+      // this one extra check failed; the server-side gate at submit time
+      // still applies regardless.
+      setUnrecognized(false);
+    }
   }
 
   return (
@@ -97,8 +142,12 @@ export default function TickerAutocompleteInput({
       <input
         type="text"
         value={value}
-        onChange={(e) => onChange(e.target.value.toUpperCase())}
+        onChange={(e) => {
+          setUnrecognized(false);
+          onChange(e.target.value.toUpperCase());
+        }}
         onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+        onBlur={handleBlur}
         onKeyDown={(e) => e.key === "Escape" && setShowSuggestions(false)}
         placeholder={placeholder}
         className={
@@ -106,6 +155,11 @@ export default function TickerAutocompleteInput({
           "w-full rounded-md border border-black/10 bg-transparent px-3 py-2 text-sm outline-none transition-colors duration-200 ease-out focus:border-blue-400/50 dark:border-white/15 dark:focus:border-blue-400/50"
         }
       />
+      {unrecognized && (
+        <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+          &ldquo;{value.trim()}&rdquo; isn&apos;t a recognized ticker symbol — pick one from the suggestions.
+        </p>
+      )}
       {showSuggestions && suggestions.length > 0 && value.trim().length >= 2 && (
         <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-auto rounded-md border border-black/10 bg-background text-sm shadow-lg dark:border-white/15">
           {suggestions.map((s, index) => (

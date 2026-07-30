@@ -52,8 +52,37 @@ interface PerformancePoint {
 interface ChartRow {
   date: string;
   timestamp: number;
-  portfolioValue: number;
+  // Null marks a calendar day with no snapshot at all (a missed cron run,
+  // not merely a value that happened not to move) — see fillDailyGaps
+  // below. Recharts' own default (connectNulls=false, set explicitly below
+  // too) breaks the Area/Line at a null rather than drawing straight
+  // through it, unlike simply omitting the day from the array.
+  portfolioValue: number | null;
   benchmarkValue: number | null;
+}
+
+// Expands a real-points-only series to one entry per calendar day between
+// its first and last point, inserting a null-value row for any day with no
+// matching snapshot — "one point per day" (see this component's own
+// caption below) is the assumption a gap should be visible against, not
+// silently absorbed into a smooth line between whatever real points exist.
+// Never pads before the first or after the last real point, so the
+// series' own true start/end values are unaffected.
+function fillDailyGaps(series: PerformancePoint[]): (PerformancePoint & { hasData: true } | { date: string; value: null; hasData: false })[] {
+  if (series.length < 2) return series.map((p) => ({ ...p, hasData: true as const }));
+
+  const byDate = new Map(series.map((p) => [p.date.slice(0, 10), p.value]));
+  const sortedDates = [...byDate.keys()].sort();
+  const start = new Date(sortedDates[0] + "T00:00:00Z");
+  const end = new Date(sortedDates[sortedDates.length - 1] + "T00:00:00Z");
+
+  const filled: (PerformancePoint & { hasData: true } | { date: string; value: null; hasData: false })[] = [];
+  for (let d = new Date(start); d.getTime() <= end.getTime(); d.setUTCDate(d.getUTCDate() + 1)) {
+    const dateKey = d.toISOString().slice(0, 10);
+    const value = byDate.get(dateKey);
+    filled.push(value !== undefined ? { date: dateKey, value, hasData: true } : { date: dateKey, value: null, hasData: false });
+  }
+  return filled;
 }
 
 const currencyFormatter = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -113,6 +142,16 @@ function CustomTooltip({
 }) {
   if (!active || !payload || payload.length === 0) return null;
   const row = payload[0].payload;
+  if (row.portfolioValue === null) {
+    return (
+      <div className="rounded-md border border-black/10 bg-background p-3 text-xs shadow-lg dark:border-white/15">
+        <p className="mb-1 font-medium text-foreground/70">
+          {new Date(row.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+        </p>
+        <p className="text-foreground/50">No snapshot recorded for this day</p>
+      </div>
+    );
+  }
   const lifetimeChange = row.portfolioValue - startingBalance;
   const lifetimePercent = startingBalance > 0 ? (lifetimeChange / startingBalance) * 100 : 0;
 
@@ -138,10 +177,18 @@ export default function SimulatedPerformanceChart({
   portfolio,
   performanceSeries,
   totalValue,
+  trackingStartsAt = null,
 }: {
   portfolio: { createdAt: string; startingBalance: number };
   performanceSeries: PerformancePoint[];
   totalValue: number;
+  // Non-null only for a pre-migration Model Portfolio whose since-inception
+  // return is suppressed (see lib/modelPortfolios/detail.ts) — the visible
+  // series then starts at this date, not portfolio.createdAt, so the
+  // caption below needs to say so rather than claiming "since created."
+  // Absent (null) for every other caller — Simulated Portfolio has no such
+  // concept, so it always gets the original wording.
+  trackingStartsAt?: string | null;
 }) {
   const [timeframe, setTimeframe] = useState<Timeframe>("ALL");
   const [showBenchmark, setShowBenchmark] = useState(false);
@@ -212,21 +259,35 @@ export default function SimulatedPerformanceChart({
         ? nearestCloseOnOrBefore(benchmarkHistory, new Date(visibleSeries[0].date).getTime())
         : null;
 
-    return visibleSeries.map((point) => {
+    return fillDailyGaps(visibleSeries).map((point) => {
       const pointMs = new Date(point.date).getTime();
       let benchmarkValue: number | null = null;
-      if (benchmarkHistory && startSpyClose != null && startSpyClose > 0) {
+      if (point.hasData && benchmarkHistory && startSpyClose != null && startSpyClose > 0) {
         const closeAtPoint = nearestCloseOnOrBefore(benchmarkHistory, pointMs);
         if (closeAtPoint != null) {
           benchmarkValue = startValue * (closeAtPoint / startSpyClose);
         }
       }
-      return { date: point.date, timestamp: pointMs, portfolioValue: point.value, benchmarkValue };
+      return { date: point.date, timestamp: pointMs, portfolioValue: point.hasData ? point.value : null, benchmarkValue };
     });
   }, [visibleSeries, benchmarkHistory]);
 
-  const first = chartData[0];
-  const last = chartData[chartData.length - 1];
+  // fillDailyGaps never pads before the first or after the last real point
+  // (see its own comment), so these two are always real, non-null values —
+  // any inserted gap rows only ever land strictly between them.
+  const realRows = chartData.filter((r): r is ChartRow & { portfolioValue: number } => r.portfolioValue !== null);
+  const first = realRows[0];
+  const last = realRows[realRows.length - 1];
+  // A genuine full-history series always has at least 2 points (a creation
+  // baseline plus "now"), even brand new — so fewer than 2 here only
+  // happens when the caller intentionally trimmed the series to just the
+  // "now" point (see lib/modelPortfolios/detail.ts's suppressed-history
+  // case). Showing "+$0.00" in that state would read as a real, flat
+  // return rather than "no baseline to measure from yet" — the same gap
+  // this component's own "Your performance will appear here" placeholder
+  // already exists to avoid, just for the stat row above the chart instead
+  // of the chart itself.
+  const hasEnoughHistoryForReturn = realRows.length >= 2;
   const timeframeReturn = first && last ? last.portfolioValue - first.portfolioValue : 0;
   const timeframeReturnPercent = first && first.portfolioValue > 0 ? (timeframeReturn / first.portfolioValue) * 100 : 0;
 
@@ -285,10 +346,14 @@ export default function SimulatedPerformanceChart({
         </div>
         <div className="flex flex-col gap-0.5">
           <span className="text-[11px] text-foreground/50">Return ({timeframe})</span>
-          <span className={`text-base font-semibold ${isUp ? "text-green-500" : "text-red-500"}`}>
-            <AnimatedNumber value={timeframeReturn} format={formatSignedCurrency} /> (
-            <AnimatedNumber value={timeframeReturnPercent} format={formatPercent} />)
-          </span>
+          {hasEnoughHistoryForReturn ? (
+            <span className={`text-base font-semibold ${isUp ? "text-green-500" : "text-red-500"}`}>
+              <AnimatedNumber value={timeframeReturn} format={formatSignedCurrency} /> (
+              <AnimatedNumber value={timeframeReturnPercent} format={formatPercent} />)
+            </span>
+          ) : (
+            <span className="text-base font-semibold text-foreground/40">—</span>
+          )}
         </div>
         {showBenchmark && (
           <div className="flex flex-col gap-0.5">
@@ -335,8 +400,11 @@ export default function SimulatedPerformanceChart({
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.06} />
               <XAxis
-                dataKey="date"
-                tickFormatter={(d) => new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                dataKey="timestamp"
+                type="number"
+                scale="time"
+                domain={["dataMin", "dataMax"]}
+                tickFormatter={(t) => new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                 tick={{ fontSize: 11 }}
               />
               <YAxis tick={{ fontSize: 11 }} domain={["auto", "auto"]} tickFormatter={(v) => compactCurrencyFormatter.format(Number(v))} />
@@ -348,6 +416,7 @@ export default function SimulatedPerformanceChart({
                 strokeWidth={2}
                 fill="url(#simulatedPortfolioGradient)"
                 dot={chartData.length <= 10 ? { r: 3 } : false}
+                connectNulls={false}
                 isAnimationActive
                 animationDuration={600}
                 animationEasing="ease-out"
@@ -381,7 +450,7 @@ export default function SimulatedPerformanceChart({
         </div>
       )}
 
-      {chartData.length > 1 && chartData.length < SPARSE_HISTORY_POINT_COUNT && (
+      {chartData.length > 1 && realRows.length < SPARSE_HISTORY_POINT_COUNT && (
         <p className="text-[11px] italic text-foreground/40">
           Still building history — check back daily as more of your performance builds in.
         </p>
@@ -390,7 +459,9 @@ export default function SimulatedPerformanceChart({
       <p className="text-[11px] leading-relaxed text-foreground/40">
         {showBenchmark
           ? "S&P 500 line shows what the portfolio's value at the start of this window would be worth today if invested in SPY instead, tracked using real SPY closing prices."
-          : "One point per day since this portfolio was created; the most recent point reflects live prices."}
+          : trackingStartsAt
+            ? `One point per day since tracking began on ${new Date(trackingStartsAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}; the most recent point reflects live prices.`
+            : "One point per day since this portfolio was created; the most recent point reflects live prices."}
       </p>
     </section>
   );

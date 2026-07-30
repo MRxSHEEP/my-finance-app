@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { cardClass } from "@/lib/cardStyles";
+import { WEIGHT_SUM_EPSILON } from "@/lib/modelPortfolios/constants";
 import ModelPortfolioHoldingsEditor, { type HoldingRow } from "@/components/modelPortfolios/ModelPortfolioHoldingsEditor";
 
 const EMPTY_ROW: HoldingRow = { assetType: "stock", symbol: "", targetWeightPercent: "" };
@@ -27,7 +28,7 @@ export default function CreateModelPortfolioForm({ onCreated }: { onCreated: () 
       return setError("Every holding needs a symbol and a positive weight.");
     }
     const weightSum = holdings.reduce((s, h) => s + h.targetWeightPercent, 0);
-    if (Math.abs(weightSum - 100) > 0.01) {
+    if (Math.abs(weightSum - 100) > WEIGHT_SUM_EPSILON) {
       return setError(`Target weights must sum to 100% (currently ${weightSum.toFixed(2)}%).`);
     }
 

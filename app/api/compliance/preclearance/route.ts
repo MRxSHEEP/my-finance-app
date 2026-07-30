@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { logComplianceAction } from "@/lib/compliance/auditLog";
 import { evaluateTradeForFlags } from "@/lib/compliance/flagging";
 import { hasAtLeastRole } from "@/lib/compliance/roles";
+import { validateRealTicker } from "@/lib/resolveTicker";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,17 @@ export async function POST(request: NextRequest) {
   const proposedTradeDate = new Date(proposedTradeDateRaw);
   if (Number.isNaN(proposedTradeDate.getTime())) {
     return NextResponse.json({ error: "Invalid proposedTradeDate" }, { status: 400 });
+  }
+
+  // Server-side enforcement — the restricted-list check below matches on
+  // this exact string, so an unresolved free-text ticker (e.g. "GOOGLE"
+  // instead of "GOOGL") would silently produce zero flags even against a
+  // genuinely restricted company. TickerAutocompleteInput's dropdown is a
+  // convenience, not a guarantee, so this is validated here regardless of
+  // whether a suggestion was ever selected client-side.
+  const tickerCheck = await validateRealTicker(ticker);
+  if (!tickerCheck.valid) {
+    return NextResponse.json({ error: tickerCheck.error }, { status: 400 });
   }
 
   const preclearanceRequest = await prisma.preclearanceRequest.create({
