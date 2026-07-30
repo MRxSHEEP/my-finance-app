@@ -6,11 +6,11 @@ import { cardClass } from "@/lib/cardStyles";
 import { DEMO_AI_REVIEW, DEMO_PRECLEARANCE_REQUEST } from "@/components/compliance/preview/sampleData";
 
 // Timeline (ms from mount) for the fully self-playing sequence: the
-// accordion opens, "runs" the AI review, the officer's suggested note gets
-// used, then the request is approved. A visitor can also short-circuit any
-// step by clicking it themselves — the accordion toggle, "Run AI Review",
-// "Use suggested note", and Approve/Deny all work for real — same
-// interactive-but-self-playing spirit this scene always had.
+// accordion opens, "runs" the Noble review, the officer's suggested note
+// gets used, then the request is approved. A visitor can also
+// short-circuit any step by clicking it themselves — the accordion toggle,
+// "Run Noble Review", "Use suggested note", and Approve/Deny all work for
+// real — same interactive-but-self-playing spirit this scene always had.
 const EXPAND_AT_MS = 900;
 const ANALYZING_AT_MS = 1300;
 const RESULT_AT_MS = 2600;
@@ -28,10 +28,10 @@ function formatDate(value: string): string {
   return new Date(value).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
 
-// Mirrors PreclearanceTable.tsx's row + AI-Assisted Review accordion
+// Mirrors PreclearanceTable.tsx's row + Noble-Assisted Review accordion
 // markup/classes exactly, but as a bespoke recreation rather than the real
 // component — that component now makes a real, authenticated fetch when
-// "Run AI Review" is clicked (see components/compliance/PreclearanceTable.tsx's
+// "Run Noble Review" is clicked (see components/compliance/PreclearanceTable.tsx's
 // Compliance Copilot integration), which a signed-out visitor could never
 // actually complete. Every state change here is local and scripted instead,
 // same as every other scene in this walkthrough (see AuditLogScene.tsx).
@@ -114,7 +114,7 @@ export default function PreclearanceScene() {
                       >
                         <span className="flex items-center gap-1.5">
                           <Sparkles size={13} className="text-indigo-400" />
-                          AI-Assisted Review
+                          Noble-Assisted Review
                         </span>
                         <ChevronDown
                           size={14}
@@ -133,7 +133,7 @@ export default function PreclearanceScene() {
                                 onClick={runAnalysis}
                                 className="self-start rounded-md border border-indigo-400/30 px-2.5 py-1.5 text-xs font-medium text-indigo-400 transition-colors hover:bg-indigo-400/10"
                               >
-                                Run AI Review
+                                Run Noble Review
                               </button>
                             )}
                             {aiPhase === "analyzing" && (

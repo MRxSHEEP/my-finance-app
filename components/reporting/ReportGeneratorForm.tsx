@@ -221,7 +221,7 @@ export default function ReportGeneratorForm({ onCreated }: { onCreated: () => vo
         <div className={cardClass("neutral", { extra: "flex flex-col gap-3 p-4" })}>
           <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
             <Sparkles size={15} className="text-indigo-400" />
-            AI Commentary (optional)
+            Noble Commentary (optional)
           </h3>
 
           {portfolioSource === "manual" && (
@@ -236,7 +236,7 @@ export default function ReportGeneratorForm({ onCreated }: { onCreated: () => vo
             disabled={!canDraftNarrative || aiLoading}
             className="self-start rounded-md border border-indigo-400/30 px-3 py-1.5 text-xs font-medium text-indigo-400 transition-colors hover:bg-indigo-400/10 disabled:opacity-50"
           >
-            {aiLoading ? "Drafting…" : narrative ? "Regenerate draft" : "Draft AI Commentary"}
+            {aiLoading ? "Drafting…" : narrative ? "Regenerate draft" : "Draft Noble Commentary"}
           </button>
 
           {aiError && <p className="text-sm text-red-500">{aiError}</p>}
@@ -247,7 +247,7 @@ export default function ReportGeneratorForm({ onCreated }: { onCreated: () => vo
               value={narrative}
               onChange={(e) => setNarrative(e.target.value)}
               rows={5}
-              placeholder="Click “Draft AI Commentary” to generate a suggested narrative, or write your own here."
+              placeholder="Click “Draft Noble Commentary” to generate a suggested narrative, or write your own here."
               className="w-full rounded-md border border-black/10 bg-transparent px-3 py-2 text-sm outline-none transition-colors duration-200 ease-out focus:border-blue-400/50 dark:border-white/15 dark:focus:border-blue-400/50"
             />
           </label>

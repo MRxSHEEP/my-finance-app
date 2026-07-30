@@ -271,7 +271,7 @@ export default function SignalsPage() {
     <main className="flex flex-1 flex-col items-center gap-6 p-8 pt-16">
       <div className="flex w-full max-w-5xl flex-col gap-6">
         <RevealOnScroll className="flex flex-col gap-1">
-          <h1 className="text-3xl font-bold text-foreground">AI Trade Signals</h1>
+          <h1 className="text-3xl font-bold text-foreground">Noble Trade Signals</h1>
           <p className="text-sm text-foreground/60">
             Daily, AI-generated directional signals for a fixed watchlist of major tickers — built from real
             technical indicators, analyst data, earnings, news, and insider/congressional trading activity.

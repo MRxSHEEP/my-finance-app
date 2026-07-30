@@ -51,9 +51,9 @@ const SCENES: SceneDef[] = [
     key: "preclearance",
     label: "Pre-clearance",
     caption:
-      "High-risk trades require sign-off before they're placed — now with an AI-drafted flag, rationale, and suggested note that saves officers real review time, without ever deciding for them. Try clicking Approve or Deny yourself.",
+      "High-risk trades require sign-off before they're placed — now with a Noble-drafted flag, rationale, and suggested note that saves officers real review time, without ever deciding for them. Try clicking Approve or Deny yourself.",
     Component: PreclearanceScene,
-    // This scene now also plays out the AI-Assisted Review step (collapsed
+    // This scene now also plays out the Noble-Assisted Review step (collapsed
     // -> expanded -> analyzing -> result -> note applied -> approved) on
     // top of its original approve/deny beat — meaningfully more to read
     // than every other scene, hence the longer-than-default runtime.

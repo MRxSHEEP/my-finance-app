@@ -14,10 +14,10 @@ const DRAFTED_AT_MS = 1800;
 const EDITED_AT_MS = 3800;
 const MANUAL_DRAFT_MS = 1000;
 
-// Mirrors ReportGeneratorForm.tsx's "AI Commentary (optional)" card
+// Mirrors ReportGeneratorForm.tsx's "Noble Commentary (optional)" card
 // markup/classes exactly, but as a bespoke recreation rather than the real
 // component — that card makes a real, authenticated Claude API call when
-// "Draft AI Commentary" is clicked (see app/api/reporting/reports/draft-narrative/route.ts),
+// "Draft Noble Commentary" is clicked (see app/api/reporting/reports/draft-narrative/route.ts),
 // which a signed-out visitor could never actually complete. Every state
 // change here is local and scripted instead, same convention as the
 // Compliance walkthrough's PreclearanceScene.
@@ -49,7 +49,7 @@ export default function AiCommentaryScene() {
     <div className={cardClass("neutral", { extra: "flex flex-col gap-3 p-4 text-left" })}>
       <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
         <Sparkles size={15} className="text-indigo-400" />
-        AI Commentary (optional)
+        Noble Commentary (optional)
       </h3>
 
       <button
@@ -58,7 +58,7 @@ export default function AiCommentaryScene() {
         disabled={phase === "drafting"}
         className="self-start rounded-md border border-indigo-400/30 px-3 py-1.5 text-xs font-medium text-indigo-400 transition-colors hover:bg-indigo-400/10 disabled:opacity-50"
       >
-        {phase === "drafting" ? "Drafting…" : narrative ? "Regenerate draft" : "Draft AI Commentary"}
+        {phase === "drafting" ? "Drafting…" : narrative ? "Regenerate draft" : "Draft Noble Commentary"}
       </button>
 
       <label className="flex flex-col gap-1">
@@ -67,7 +67,7 @@ export default function AiCommentaryScene() {
           value={narrative}
           onChange={(e) => setNarrative(e.target.value)}
           rows={5}
-          placeholder="Click “Draft AI Commentary” to generate a suggested narrative, or write your own here."
+          placeholder="Click “Draft Noble Commentary” to generate a suggested narrative, or write your own here."
           className="w-full rounded-md border border-black/10 bg-transparent px-3 py-2 text-sm outline-none transition-colors duration-200 ease-out focus:border-blue-400/50 dark:border-white/15 dark:focus:border-blue-400/50"
         />
       </label>

@@ -41,7 +41,7 @@ const STATUS_STYLE: Record<string, string> = {
   denied: "bg-red-500/10 text-red-500",
 };
 
-// Collapsed-by-default AI-Assisted Review (Compliance Copilot), plus the
+// Collapsed-by-default Noble-Assisted Review (Compliance Copilot), plus the
 // (also new) decision-notes textarea and the real Approve/Deny actions —
 // all scoped to one pending request. The AI call is read-only and never
 // persists anything on its own; the textarea is local component state
@@ -93,7 +93,7 @@ function PendingRequestControls({
         >
           <span className="flex items-center gap-1.5">
             <Sparkles size={13} className="text-indigo-400" />
-            AI-Assisted Review
+            Noble-Assisted Review
           </span>
           <ChevronDown size={14} className={`shrink-0 text-foreground/40 transition-transform duration-200 ${aiOpen ? "rotate-180" : ""}`} />
         </button>
@@ -107,7 +107,7 @@ function PendingRequestControls({
                   disabled={aiLoading}
                   className="self-start rounded-md border border-indigo-400/30 px-2.5 py-1.5 text-xs font-medium text-indigo-400 transition-colors hover:bg-indigo-400/10 disabled:opacity-50"
                 >
-                  {aiLoading ? "Analyzing…" : "Run AI Review"}
+                  {aiLoading ? "Analyzing…" : "Run Noble Review"}
                 </button>
               )}
               {aiError && <p className="text-red-500">{aiError}</p>}

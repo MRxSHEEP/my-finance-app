@@ -40,14 +40,14 @@ const SCENES: SceneDef[] = [
   },
   {
     key: "ai-commentary",
-    label: "AI commentary",
+    label: "Noble commentary",
     caption:
       "A plain-language performance narrative drafts itself in seconds, citing the same data an advisor would — saving real research time, while every word stays editable and nothing is final until they approve it.",
     Component: AiCommentaryScene,
     // Plays out draft -> analyzing -> result -> edited, meaningfully more
     // to read than the simpler static scenes above, hence the longer
     // runtime — same reasoning as the Compliance walkthrough's own
-    // AI-Assisted Review scene bump.
+    // Noble-Assisted Review scene bump.
     durationMs: 9000,
   },
   {
