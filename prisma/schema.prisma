@@ -950,3 +950,38 @@ model GeneratedNewsArticle {
   @@unique([assetType, ticker])
   @@index([generatedAt])
 }
+
+// Earnings Setup Analysis — grounded factor context (analyst consensus,
+// price target, recent rating revisions, beat/miss history, price
+// reaction, revenue mix) for one specific past earnings event, shown in
+// the Earnings Calendar's in-place detail view (see lib/earningsSetup/,
+// app/api/earnings-setup/route.ts). Deliberately keyed by (ticker,
+// reportDate) rather than ticker alone, unlike GeneratedNewsArticle above
+// — a past quarter's beat/miss history and price reaction are permanently
+// fixed facts once that quarter is behind us, so this is a frozen,
+// point-in-time snapshot generated once per earnings event and never
+// regenerated, not a "current state" row refreshed on a cadence.
+model EarningsSetupAnalysis {
+  id         String   @id @default(cuid())
+  ticker     String
+  reportDate DateTime
+
+  // The exact data this analysis was generated from, stored verbatim —
+  // same audit convention as TradeSignal.dataSnapshot / GeneratedNewsArticle.dataSnapshot.
+  dataSnapshot Json
+  // Claude's own self-reported numeric citations, validated against
+  // dataSnapshot before publish (lib/earningsSetup/factCheck.ts) — a
+  // failed check (or a strategy-language violation, see
+  // lib/earningsSetup/strategyGuard.ts) means this row is never written,
+  // so every persisted row here already passed both gates.
+  citedFacts Json
+  // Null when no narrative could be generated/passed its gates yet —
+  // the structured data (recomputed live from dataSnapshot by the API
+  // route, not stored redundantly here) still renders on its own in that
+  // case; only the connecting prose is ever gated behind this.
+  narrative String? @db.Text
+
+  generatedAt DateTime @default(now())
+
+  @@unique([ticker, reportDate])
+}

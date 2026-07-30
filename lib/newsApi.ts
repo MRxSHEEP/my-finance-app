@@ -1,3 +1,5 @@
+import { EARNINGS_ANCHOR_TERMS } from "@/lib/earningsNewsRelevance";
+
 // General-purpose press-release wire services — they syndicate
 // announcements for every industry (automotive, consumer audio,
 // retail...), not just financial ones, so an article from one of these
@@ -258,23 +260,10 @@ export const COMMODITY_DENYLIST_TERMS = [
 // categories are keyword-anchored the same way Commodities already is —
 // applied only within the general News feed's already entity-scoped
 // result set, not as a standalone query (see classifyCategory below).
-const EARNINGS_ANCHOR_TERMS = [
-  "earnings",
-  "quarterly results",
-  "eps",
-  "guidance",
-  "beats estimates",
-  "misses estimates",
-  "revenue beat",
-  "revenue miss",
-  "earnings call",
-  "earnings report",
-  "q1 results",
-  "q2 results",
-  "q3 results",
-  "q4 results",
-];
-
+// EARNINGS_ANCHOR_TERMS itself lives in lib/earningsNewsRelevance.ts (a
+// small, dependency-free module) so the Earnings Calendar's in-place
+// detail view — a client component — can reuse the exact same list
+// without bundling this whole file's server-side Marketaux integration.
 const ECONOMY_ANCHOR_TERMS = [
   "federal reserve",
   "the fed",

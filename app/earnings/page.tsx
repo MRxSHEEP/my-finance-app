@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { CalendarClock, ArrowUpRight, ArrowDownRight, BellRing } from "lucide-react";
 import RevealOnScroll from "@/components/RevealOnScroll";
@@ -9,6 +8,7 @@ import PaginationControls from "@/components/Pagination";
 import SectorFilterDropdown, { type SectorFilter } from "@/components/SectorFilterDropdown";
 import WatchlistStar from "@/components/WatchlistStar";
 import StockLogo from "@/components/stocks/StockLogo";
+import EarningsDetailModal from "@/components/earnings/EarningsDetailModal";
 import { STOCK_CATALOG, type CatalogSector } from "@/lib/stockCatalog";
 import { useInViewOnce } from "@/lib/useInViewOnce";
 
@@ -315,6 +315,7 @@ function EarningsRow({
   todayIso,
   delayMs = 0,
   watchlisted,
+  onSelect,
 }: {
   entry: EarningsEntry;
   todayIso: string;
@@ -327,6 +328,9 @@ function EarningsRow({
   // one parent fetch resolves; a small, acceptable trade-off for avoiding
   // N duplicate requests.
   watchlisted: boolean;
+  // Opens the in-place detail modal instead of navigating away — see
+  // EarningsPage's own selectedEntry state below.
+  onSelect: (entry: EarningsEntry) => void;
 }) {
   const isToday = entry.date === todayIso;
   const reported = entry.epsActual !== null;
@@ -337,9 +341,22 @@ function EarningsRow({
 
   return (
     <RevealOnScroll delayMs={delayMs}>
-      <Link
-        href={`/stocks?ticker=${encodeURIComponent(entry.symbol)}&tab=earnings`}
-        className={`flex flex-wrap items-center gap-4 rounded-lg border p-3 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-lg ${
+      {/* A <div role="button"> instead of a real <button> — WatchlistStar
+          below renders its own real <button>, and nesting one interactive
+          element inside another is invalid HTML (unlike the old <a href>
+          wrapper, which had the same nesting but at least degrades to a
+          single, well-defined browser behavior; a nested button doesn't). */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => onSelect(entry)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelect(entry);
+          }
+        }}
+        className={`flex w-full flex-wrap items-center gap-4 rounded-lg border p-3 text-left transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-lg ${
           isToday
             ? "border-amber-500/30 bg-amber-500/5 hover:shadow-amber-400/10"
             : "border-black/10 bg-foreground/[0.02] hover:border-black/20 hover:shadow-black/5 dark:border-white/15 dark:hover:border-white/25 dark:hover:shadow-white/5"
@@ -362,17 +379,13 @@ function EarningsRow({
           <TrackRecordBadge symbol={entry.symbol} />
         </div>
 
-        {/* Clicking the star must not also trigger the row's own Link
-            navigation. stopPropagation alone isn't enough — the row is a
-            real <a href>, so without preventDefault too, the browser's
-            native "follow this link" action still fires regardless of
-            whether the React click event kept bubbling (confirmed live:
-            without preventDefault, clicking the star still hard-navigated
-            to the stock page). Both together fully suppress it. */}
+        {/* Clicking the star must not also trigger the row's own onSelect
+            (opening the detail modal) — stopPropagation alone is enough
+            here since the row is a plain div, not a real <a href> with its
+            own native navigation to separately suppress. */}
         <div
           className="shrink-0"
           onClick={(event) => {
-            event.preventDefault();
             event.stopPropagation();
           }}
         >
@@ -418,7 +431,7 @@ function EarningsRow({
             </>
           )}
         </div>
-      </Link>
+      </div>
     </RevealOnScroll>
   );
 }
@@ -450,10 +463,12 @@ function WatchlistEarningsSection({
   entries,
   todayIso,
   watchlistSymbols,
+  onSelect,
 }: {
   entries: EarningsEntry[];
   todayIso: string;
   watchlistSymbols: Set<string>;
+  onSelect: (entry: EarningsEntry) => void;
 }) {
   const upcoming = useMemo(
     () =>
@@ -475,7 +490,7 @@ function WatchlistEarningsSection({
       <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground/70">
         <BellRing size={14} className="text-indigo-400" /> Your Watchlist — Reporting Soon
       </h3>
-      <div className="flex flex-col gap-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {upcoming.map((entry, index) => (
           <EarningsRow
             key={`${entry.symbol}-${entry.date}`}
@@ -483,6 +498,7 @@ function WatchlistEarningsSection({
             todayIso={todayIso}
             delayMs={Math.min(index * STAGGER_MS, MAX_STAGGER_MS)}
             watchlisted
+            onSelect={onSelect}
           />
         ))}
       </div>
@@ -500,11 +516,13 @@ function RecentlyReportedSection({
   todayIso,
   sectorFilterActive,
   watchlistSymbols,
+  onSelect,
 }: {
   entries: EarningsEntry[];
   todayIso: string;
   sectorFilterActive: boolean;
   watchlistSymbols: Set<string>;
+  onSelect: (entry: EarningsEntry) => void;
 }) {
   const [page, setPage] = useState(1);
   const listRef = useRef<HTMLDivElement>(null);
@@ -539,7 +557,7 @@ function RecentlyReportedSection({
   return (
     <div ref={listRef} className="flex scroll-mt-20 flex-col gap-3">
       <h3 className="text-sm font-semibold text-foreground/70">Recently Reported</h3>
-      <div className="flex flex-col gap-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {visible.map((entry, index) => (
           <EarningsRow
             key={`${entry.symbol}-${entry.date}`}
@@ -547,6 +565,7 @@ function RecentlyReportedSection({
             todayIso={todayIso}
             delayMs={Math.min(index * STAGGER_MS, MAX_STAGGER_MS)}
             watchlisted={watchlistSymbols.has(entry.symbol)}
+            onSelect={onSelect}
           />
         ))}
       </div>
@@ -578,6 +597,11 @@ export default function EarningsPage() {
 
   const [upcomingPage, setUpcomingPage] = useState(1);
   const upcomingListRef = useRef<HTMLDivElement>(null);
+
+  // Set by any EarningsRow's onSelect (across all three sections below) —
+  // renders EarningsDetailModal in place rather than navigating away, so
+  // the user never leaves this page just to see one report's detail.
+  const [selectedEntry, setSelectedEntry] = useState<EarningsEntry | null>(null);
 
   // Fetched once here (rather than each row doing its own check) so up to
   // 40 rows at once never fire 40 redundant GET /api/watchlist calls — see
@@ -715,7 +739,7 @@ export default function EarningsPage() {
 
   return (
     <main className="flex flex-1 flex-col items-center gap-8 p-8 pt-16">
-      <div className="flex w-full max-w-3xl flex-col gap-2">
+      <div className="flex w-full max-w-5xl flex-col gap-2">
         <div className="flex items-center gap-2">
           <CalendarClock className="text-foreground" size={26} />
           <h1 className="text-3xl font-bold text-foreground">Earnings Calendar</h1>
@@ -726,17 +750,18 @@ export default function EarningsPage() {
         </p>
       </div>
 
-      <div className="flex w-full max-w-3xl items-center justify-between gap-3">
+      <div className="flex w-full max-w-5xl items-center justify-between gap-3">
         <p className="text-xs text-foreground/50">Filter the whole page by sector</p>
         <SectorFilterDropdown sector={sector} onChange={setSector} />
       </div>
 
-      <RevealOnScroll className="flex w-full max-w-3xl flex-col gap-6">
+      <RevealOnScroll className="flex w-full max-w-5xl flex-col gap-6">
         {defaultData && (
           <WatchlistEarningsSection
             entries={defaultData.entries}
             todayIso={todayIso}
             watchlistSymbols={watchlistSymbols}
+            onSelect={setSelectedEntry}
           />
         )}
 
@@ -746,6 +771,7 @@ export default function EarningsPage() {
             todayIso={todayIso}
             sectorFilterActive={sector !== "All"}
             watchlistSymbols={watchlistSymbols}
+            onSelect={setSelectedEntry}
           />
         )}
 
@@ -823,15 +849,18 @@ export default function EarningsPage() {
                 <h4 className="text-xs font-semibold uppercase tracking-wide text-foreground/40">
                   {group.label}
                 </h4>
-                {group.entries.map((entry, index) => (
-                  <EarningsRow
-                    key={`${entry.symbol}-${entry.date}`}
-                    entry={entry}
-                    todayIso={todayIso}
-                    delayMs={Math.min((group.startIndex + index) * STAGGER_MS, MAX_STAGGER_MS)}
-                    watchlisted={watchlistSymbols.has(entry.symbol)}
-                  />
-                ))}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {group.entries.map((entry, index) => (
+                    <EarningsRow
+                      key={`${entry.symbol}-${entry.date}`}
+                      entry={entry}
+                      todayIso={todayIso}
+                      delayMs={Math.min((group.startIndex + index) * STAGGER_MS, MAX_STAGGER_MS)}
+                      watchlisted={watchlistSymbols.has(entry.symbol)}
+                      onSelect={setSelectedEntry}
+                    />
+                  ))}
+                </div>
               </div>
             ))}
           </div>
@@ -851,6 +880,8 @@ export default function EarningsPage() {
           from Finnhub; not financial advice.
         </p>
       </RevealOnScroll>
+
+      {selectedEntry && <EarningsDetailModal entry={selectedEntry} onClose={() => setSelectedEntry(null)} />}
     </main>
   );
 }

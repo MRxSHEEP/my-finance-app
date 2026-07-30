@@ -159,6 +159,42 @@ export async function fetchFmpEarnings(ticker: string, limit = 5): Promise<FmpEa
   return fetchFmp<FmpEarnings>("earnings", { symbol: ticker, limit: String(Math.min(limit, 5)) });
 }
 
+export interface FmpGrade {
+  date: string;
+  gradingCompany: string;
+  previousGrade: string;
+  newGrade: string;
+  // FMP labels this explicitly — no need to derive direction ourselves
+  // from comparing grade text (which would require an ordered rating
+  // scale that varies by grading firm's own vocabulary).
+  action: "upgrade" | "downgrade" | "maintain" | string;
+}
+
+// Individual analyst rating actions (not literal price-target dollar
+// revisions — FMP's dedicated price-target-revision endpoint is
+// restricted on this plan, confirmed live). Returned newest-first.
+export async function fetchFmpGrades(ticker: string): Promise<FmpGrade[] | null> {
+  return fetchFmp<FmpGrade>("grades", { symbol: ticker });
+}
+
+export interface FmpRevenueSegmentation {
+  symbol: string;
+  fiscalYear: number;
+  period: string;
+  date: string;
+  // Segment/product or geography name -> revenue in raw dollars.
+  data: Record<string, number>;
+}
+
+// Quarterly granularity is premium-restricted on this plan (confirmed
+// live: 402 for period=quarter) — only the default annual (period=FY)
+// resolves, so this always returns a full-fiscal-year mix, never a
+// single quarter's. Callers must label it by fiscal year, not by
+// whichever specific quarter's report they're showing it alongside.
+export async function fetchFmpRevenueSegmentation(ticker: string): Promise<FmpRevenueSegmentation[] | null> {
+  return fetchFmp<FmpRevenueSegmentation>("revenue-product-segmentation", { symbol: ticker });
+}
+
 export interface FmpInsiderTrade {
   transactionDate: string;
   reportingName: string;
