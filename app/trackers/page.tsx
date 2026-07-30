@@ -9,6 +9,7 @@ import EntityLogo from "@/components/trackers/EntityLogo";
 import PaginationControls from "@/components/Pagination";
 import SectorFilterDropdown, { type SectorFilter } from "@/components/SectorFilterDropdown";
 import { STOCK_CATALOG } from "@/lib/stockCatalog";
+import { formatCompactCurrency } from "@/lib/format";
 
 const CONGRESS_PAGE_SIZE = 12;
 const INSIDER_PAGE_SIZE = 12;
@@ -168,6 +169,14 @@ function EntityCard({ entity }: { entity: TrackerListEntry }) {
         {entity.title && <p className="truncate text-xs text-foreground/60">{entity.title}</p>}
       </div>
       <div className="shrink-0 text-right text-xs text-foreground/50">
+        {/* Same underlying sum-of-estimatedValue figure /api/trackers already
+            computes for every entity type (see that route's own comment) —
+            the Congress list already sorts by this, just not shown on the
+            card until now. Omitted rather than shown as "$0" when an entity
+            genuinely has no resolved holdings value yet. */}
+        {entity.portfolioValue > 0 && (
+          <p className="text-sm font-medium text-green-500">{formatCompactCurrency(entity.portfolioValue)}</p>
+        )}
         <p>{entity.holdingsCount > 0 ? `${entity.holdingsCount} holdings` : `${entity.transactionsCount} transactions`}</p>
         <p>{formatDate(entity.latestActivity)}</p>
       </div>
