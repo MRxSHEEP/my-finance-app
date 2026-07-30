@@ -9,6 +9,23 @@ import type {
   RatingRevisionSnapshot,
 } from "@/lib/earningsSetup/types";
 
+// None of this gather step's external/internal calls have a timeout of
+// their own (Node's native fetch has no default one), and this file's own
+// Promise.all means a single call that hangs — rather than erroring
+// quickly — blocks every other category too, stalling the whole modal on
+// its loading skeletons indefinitely. Confirmed live: a never-before-seen
+// ticker's gather hung 2+ minutes with zero server-side progress under
+// this session's provider rate-limit pressure. Same fix
+// lib/reportNarrative/gather.ts already applies to its own similar
+// fan-out, for the exact same reason (a live user click, not a background
+// cron, so a slow provider must degrade that one category to
+// "unavailable" rather than stall the feature for minutes).
+const GATHER_TIMEOUT_MS = 15_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([promise, new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))]);
+}
+
 const MAX_REVISIONS = 5;
 // A quarter's own beat/miss surprise is meaningful on its own, but a
 // streak needs more than one data point — matches TrackRecordBadge's own
@@ -211,19 +228,22 @@ export async function gatherEarningsSetupData(
 ): Promise<EarningsSetupDataSnapshot> {
   const [overview, priceTargetRes, quote, earningsRes, insidersRes, historyRes, grades, segmentation, signal, priorReportDate] =
     await Promise.all([
-      fetchInternalJson<OverviewResponse>(`/api/stock/overview?ticker=${encodeURIComponent(ticker)}`, origin),
-      fetchInternalJson<PriceTargetResponse>(`/api/stock/price-target?ticker=${encodeURIComponent(ticker)}`, origin),
-      fetchInternalJson<QuoteResponse>(`/api/stock?ticker=${encodeURIComponent(ticker)}`, origin),
-      fetchInternalJson<EarningsResponse>(`/api/stock/earnings?ticker=${encodeURIComponent(ticker)}`, origin),
-      fetchInternalJson<InsidersResponse>(`/api/stock/insiders?ticker=${encodeURIComponent(ticker)}`, origin),
-      fetchInternalJson<HistoryResponse>(
-        `/api/stock/history?ticker=${encodeURIComponent(ticker)}&interval=1day&range=${PRICE_HISTORY_RANGE}`,
-        origin
+      withTimeout(fetchInternalJson<OverviewResponse>(`/api/stock/overview?ticker=${encodeURIComponent(ticker)}`, origin), GATHER_TIMEOUT_MS),
+      withTimeout(fetchInternalJson<PriceTargetResponse>(`/api/stock/price-target?ticker=${encodeURIComponent(ticker)}`, origin), GATHER_TIMEOUT_MS),
+      withTimeout(fetchInternalJson<QuoteResponse>(`/api/stock?ticker=${encodeURIComponent(ticker)}`, origin), GATHER_TIMEOUT_MS),
+      withTimeout(fetchInternalJson<EarningsResponse>(`/api/stock/earnings?ticker=${encodeURIComponent(ticker)}`, origin), GATHER_TIMEOUT_MS),
+      withTimeout(fetchInternalJson<InsidersResponse>(`/api/stock/insiders?ticker=${encodeURIComponent(ticker)}`, origin), GATHER_TIMEOUT_MS),
+      withTimeout(
+        fetchInternalJson<HistoryResponse>(
+          `/api/stock/history?ticker=${encodeURIComponent(ticker)}&interval=1day&range=${PRICE_HISTORY_RANGE}`,
+          origin
+        ),
+        GATHER_TIMEOUT_MS
       ),
-      fetchFmpGrades(ticker),
-      fetchFmpRevenueSegmentation(ticker),
+      withTimeout(fetchFmpGrades(ticker), GATHER_TIMEOUT_MS),
+      withTimeout(fetchFmpRevenueSegmentation(ticker), GATHER_TIMEOUT_MS),
       prisma.tradeSignal.findUnique({ where: { ticker } }),
-      findPriorReportDate(ticker, reportDate, origin),
+      withTimeout(findPriorReportDate(ticker, reportDate, origin), GATHER_TIMEOUT_MS),
     ]);
 
   const currentPrice = typeof quote?.close === "number" ? quote.close : null;
