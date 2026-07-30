@@ -104,6 +104,16 @@ export default function LearningPage() {
                       : "not-started";
                   const scorePercent = row ? computeCourseScorePercent(row.quizScores) : null;
 
+                  // First slide is always "content" type (see the fixed
+                  // 9-slide shape noted at the top of courses.ts) — its
+                  // opening two paragraphs double as the hover-card teaser.
+                  // Exception: Insider Trading's own opening line ("In this
+                  // context, it refers to...") leans on that slide's own
+                  // title for its antecedent, which isn't shown on the card
+                  // — its "Why It Matters" slide reads standalone instead.
+                  const introSlide = course.topicId === "insider-trading" ? course.slides[1] : course.slides[0];
+                  const introBody = introSlide.type === "content" ? introSlide.body.slice(0, 2) : [];
+
                   return (
                     <FadeInOnMount key={course.topicId} delayMs={index * 40}>
                       <TopicCard
@@ -113,6 +123,7 @@ export default function LearningPage() {
                         percent={row?.completedAt ? 100 : percent}
                         status={cardStatus}
                         scorePercent={scorePercent}
+                        introBody={introBody}
                       />
                     </FadeInOnMount>
                   );
