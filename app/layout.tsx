@@ -1,14 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Image from "next/image";
-import Link from "next/link";
-import AccountMenu from "@/components/AccountMenu";
 import AuthSessionProvider from "@/components/AuthSessionProvider";
+import ConditionalAppChrome from "@/components/ConditionalAppChrome";
 import { MobileNavProvider } from "@/components/MobileNavContext";
-import MobileNavButton from "@/components/MobileNavButton";
-import Sidebar from "@/components/Sidebar";
-import TickerBar, { TICKER_BAR_HEIGHT_PX } from "@/components/TickerBar";
-import { SCROLLBAR_THIN_CLASS } from "@/lib/scrollbarStyles";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -39,49 +33,7 @@ export default function RootLayout({
       <body className="h-screen flex flex-col overflow-hidden">
         <AuthSessionProvider>
           <MobileNavProvider>
-            <TickerBar />
-            {/* The page's actual scroll container — offset below the fixed
-                TickerBar (via inline style, since Tailwind can't embed a JS
-                constant in an arbitrary-value class) so its scrollbar starts
-                directly under that bar instead of running the full viewport
-                height behind/alongside it. Everything that used to scroll
-                with the document (header, sidebar, page content) now scrolls
-                inside this one bounded box instead — same relative behavior,
-                just no longer via the raw document scroll. */}
-            <div
-              id="app-scroll-region"
-              className={`flex flex-1 flex-col overflow-y-auto ${SCROLLBAR_THIN_CLASS}`}
-              style={{ marginTop: TICKER_BAR_HEIGHT_PX }}
-            >
-              <header id="app-header" className="flex items-center justify-between gap-2 px-4 py-4 sm:px-6">
-                <div className="flex items-center gap-1 sm:gap-2">
-                  <MobileNavButton />
-                  <Link href="/" className="flex items-center gap-2">
-                    <Image
-                      src="/crown(1).webp.webp"
-                      alt="Noble"
-                      width={32}
-                      height={32}
-                      priority
-                      style={{ width: "auto", height: "32px" }}
-                    />
-                    <span className="text-xl font-bold text-foreground">Noble</span>
-                  </Link>
-                </div>
-                <AccountMenu />
-              </header>
-              <div className="flex flex-1">
-                <Sidebar />
-                {/* min-w-0 overrides the flex default of min-width:auto —
-                    without it, this column refuses to shrink below its
-                    content's own intrinsic width (confirmed live: a
-                    grid-cols-2 card row was measuring 584px wide inside a
-                    375px viewport, silently cropped by body's
-                    overflow-hidden with no scrollbar to reveal it, rather
-                    than actually reflowing to fit). */}
-                <div className="flex min-w-0 flex-1 flex-col">{children}</div>
-              </div>
-            </div>
+            <ConditionalAppChrome>{children}</ConditionalAppChrome>
           </MobileNavProvider>
         </AuthSessionProvider>
       </body>
