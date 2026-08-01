@@ -16,6 +16,14 @@ model User {
   password  String
   name      String?
   createdAt DateTime @default(now())
+  // "retail" | "advisor" — a display preference (which front door/header
+  // chip state a user sees), never an entitlement. Null = never explicitly
+  // set by this account; see lib/audienceMode.ts's resolution order for how
+  // that's distinguished from an explicit "retail" choice, and for the
+  // one-way, gap-filling-only cookie migration into this field. Org
+  // membership overrides this unconditionally (see the same file) — an org
+  // member is never asked and this field is never even read for them.
+  audienceMode String?
 
   watchlist WatchlistItem[]
   holdings  PortfolioHolding[]
