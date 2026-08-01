@@ -50,6 +50,15 @@ export interface EarningsEntry {
   revenueEstimate: number | null;
   revenueActual: number | null;
   isMag7: boolean;
+  // NOT part of the dedupe key (see reconcileEarningsDuplicates below) —
+  // confirmed live that Finnhub can label two rows of the SAME real report
+  // with different quarter numbers (identical epsActual/revenueActual
+  // across "Q2" and "Q3" copies of one AAPL report), so quarter/year are
+  // just as unreliable as the estimate fields, not a trustworthy signal
+  // that two rows are genuinely different events. Reconciled like any
+  // other field: null when a group disagrees on it.
+  quarter: number | null;
+  year: number | null;
 }
 
 interface RawFinnhubEntry {
@@ -60,6 +69,79 @@ interface RawFinnhubEntry {
   epsActual?: number | null;
   revenueEstimate?: number | null;
   revenueActual?: number | null;
+  quarter?: number | null;
+  year?: number | null;
+}
+
+// The fields that can actually disagree between two rows sharing the same
+// symbol+date+hour — symbol/date/hour are the grouping key itself (agree
+// by construction), and name/isMag7 are derived locally from the symbol
+// (CATALOG_NAME_BY_SYMBOL / MAG7_SYMBOLS below), never read from Finnhub's
+// own varying fields. quarter/year are included here, not in the key —
+// confirmed live they can differ between two rows of the same real report
+// (see EarningsEntry's own comment on these two fields), so they get
+// reconciled like epsEstimate/epsActual/revenueEstimate/revenueActual
+// rather than trusted to split genuinely different events apart.
+const RECONCILABLE_FIELDS = [
+  "epsEstimate",
+  "epsActual",
+  "revenueEstimate",
+  "revenueActual",
+  "quarter",
+  "year",
+] as const;
+
+// Finnhub's /calendar/earnings has been observed live returning more than
+// one row for the same symbol+date+hour — apparently distinct
+// estimate-revision snapshots of the same event, not distinct events (and
+// not reliably distinguishable by quarter/year either — see above). There's
+// no documented revision/updated-at/as-of field on this endpoint to know
+// which snapshot is newer, so rather than picking one arbitrarily (which
+// could silently show a stale or wrong number, including a stale
+// epsActual), any field the duplicate rows disagree on is suppressed to
+// null instead of guessed at. Every consumer of EarningsEntry already
+// renders a null EPS/revenue field as "—" or hides that line entirely
+// (they had to, since a not-yet-reported entry has always had epsActual:
+// null), so this doesn't introduce a new rendering case, just a new
+// reason nulls can appear on an already-reported entry.
+function reconcileEarningsDuplicates(entries: EarningsEntry[]): EarningsEntry[] {
+  const groups = new Map<string, EarningsEntry[]>();
+  for (const entry of entries) {
+    const key = `${entry.symbol}|${entry.date}|${entry.hour}`;
+    const group = groups.get(key);
+    if (group) group.push(entry);
+    else groups.set(key, [entry]);
+  }
+
+  const result: EarningsEntry[] = [];
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      result.push(group[0]);
+      continue;
+    }
+
+    const reconciled = { ...group[0] };
+    const conflictedFields: string[] = [];
+    for (const field of RECONCILABLE_FIELDS) {
+      const values = group.map((entry) => entry[field]);
+      const allAgree = values.every((value) => value === values[0]);
+      if (!allAgree) {
+        conflictedFields.push(field);
+        reconciled[field] = null;
+      }
+    }
+
+    if (conflictedFields.length > 0) {
+      console.warn(
+        `[earnings-calendar] Suppressed conflicting field(s) for ${reconciled.symbol} on ${reconciled.date}: ` +
+          `${conflictedFields.join(", ")} (${group.length} duplicate rows from Finnhub)`
+      );
+    }
+
+    result.push(reconciled);
+  }
+
+  return result;
 }
 
 function toIsoDate(date: Date): string {
@@ -155,7 +237,7 @@ export async function fetchEarningsCalendar(from?: string, to?: string): Promise
       const chunkResults = await Promise.all(chunks.map((chunk) => fetchFinnhubChunk(apiKey, chunk.from, chunk.to)));
       const entries = chunkResults.flat();
 
-      return entries
+      const mapped = entries
         .filter(
           (entry): entry is RawFinnhubEntry & { symbol: string; date: string } =>
             Boolean(entry.symbol && entry.date && CATALOG_NAME_BY_SYMBOL.has(entry.symbol))
@@ -170,7 +252,11 @@ export async function fetchEarningsCalendar(from?: string, to?: string): Promise
           revenueEstimate: entry.revenueEstimate ?? null,
           revenueActual: entry.revenueActual ?? null,
           isMag7: MAG7_SYMBOLS.has(entry.symbol),
+          quarter: entry.quarter ?? null,
+          year: entry.year ?? null,
         }));
+
+      return reconcileEarningsDuplicates(mapped);
     });
   } catch (err) {
     // Caught here (rather than left to propagate) so both callers of this

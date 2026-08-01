@@ -69,9 +69,20 @@ async function fetchTodaysEarnings(): Promise<EarningsEntry[]> {
   const todayIso = new Date().toISOString().slice(0, 10);
   const calendar = await fetchEarningsCalendar();
 
-  return calendar
-    .filter((entry) => entry.date === todayIso)
-    .map((entry) => ({ symbol: entry.symbol, name: entry.name, hour: entry.hour }));
+  // fetchEarningsCalendar already reconciles duplicate rows sharing the
+  // same symbol+date+hour, quarter/year included — see
+  // reconcileEarningsDuplicates. This dedup goes one step further and
+  // collapses to one mention per symbol regardless of hour, since this
+  // briefing only cares about "is this company reporting today," not the
+  // exact hour or how many rows Finnhub attached to it.
+  const seen = new Set<string>();
+  const deduped: EarningsEntry[] = [];
+  for (const entry of calendar) {
+    if (entry.date !== todayIso || seen.has(entry.symbol)) continue;
+    seen.add(entry.symbol);
+    deduped.push({ symbol: entry.symbol, name: entry.name, hour: entry.hour });
+  }
+  return deduped;
 }
 
 // Same fetch/dedupe pipeline as app/api/market-pulse/route.ts's own
