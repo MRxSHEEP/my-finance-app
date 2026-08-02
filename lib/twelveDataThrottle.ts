@@ -1,3 +1,5 @@
+import { randomUUID } from "crypto";
+
 // A single, process-wide throttle for every TwelveData call in this app —
 // extracted from what was originally lib/sparklineFetch.ts's own private
 // throttle so /api/stock/history (the main chart) can share the exact same
@@ -13,6 +15,15 @@
 // against calendar-minute buckets below, not just spaced apart.
 const MIN_CALL_SPACING_MS = 7_600;
 const MAX_CALLS_PER_MINUTE = 8;
+
+// Diagnostic only — a random id tied to *module evaluation*, not
+// process.pid, so a bundler/dev-server re-evaluating this module shows up
+// as a new id even if it happens to land in the same OS process. Directly
+// tests whether multiple independent copies of the queue/lastCallAt/
+// callsThisMinute state below are running concurrently, which would
+// explain call spacing narrower than MIN_CALL_SPACING_MS in the combined
+// log output despite each copy individually enforcing it correctly.
+const PROCESS_ID = randomUUID().slice(0, 8);
 
 let lastCallAt = 0;
 let currentMinuteBucket = -1;
@@ -135,7 +146,7 @@ export function throttledTwelveDataCall<T>(fn: () => Promise<T>, label?: string)
     lastCallAt = Date.now();
     totalCallsSinceStart++;
     console.log(
-      `[twelvedata] call #${totalCallsSinceStart} this process${label ? `: ${label}` : ""} (${callsThisMinute}/${MAX_CALLS_PER_MINUTE} this minute)`
+      `[twelvedata] call #${totalCallsSinceStart} this process${label ? `: ${label}` : ""} (${callsThisMinute}/${MAX_CALLS_PER_MINUTE} this minute) [moduleId=${PROCESS_ID} pid=${process.pid}]`
     );
 
     // fn() runs (and is awaited) right here, inside the queue's own turn,

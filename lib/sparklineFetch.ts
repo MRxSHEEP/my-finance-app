@@ -76,6 +76,29 @@ async function fetchOne(ticker: string): Promise<SparklinePoint[]> {
 
     if (!response.ok || body?.status === "error") {
       const message = body?.message ?? `TwelveData request failed (${response.status})`;
+
+      // Diagnostic instrumentation only — does not change what's thrown or
+      // how the daily-exhaustion breaker trips below. Logs the actual
+      // header set rather than guessing names, and separates "non-2xx
+      // status" from "200 with an error payload" (isHttpError/isPayloadError
+      // can currently only be inferred by re-deriving them from `message`,
+      // which collapses both shapes into one string).
+      const retryAfter = response.headers.get("retry-after");
+      const headers: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+      console.error("[twelvedata-failure]", {
+        ticker,
+        httpStatus: response.status,
+        is429: response.status === 429,
+        isHttpError: !response.ok,
+        isPayloadError: body?.status === "error",
+        retryAfter: retryAfter ?? "(absent)",
+        headers,
+        message,
+      });
+
       if (isTwelveDataDailyExhaustionMessage(message)) markTwelveDataDailyExhausted();
       throw new Error(message);
     }
