@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Grid3x3, Search } from "lucide-react";
 import RevealOnScroll from "@/components/RevealOnScroll";
-import SparklineSlot from "@/components/SparklineSlot";
 import PaginationControls from "@/components/Pagination";
 import SectorFilterDropdown, { type SectorFilter } from "@/components/SectorFilterDropdown";
 import StockLogo from "@/components/stocks/StockLogo";
@@ -16,14 +15,6 @@ const SEARCH_DEBOUNCE_MS = 250;
 const STAGGER_MS = 30;
 const MAX_STAGGER_MS = 300;
 const MAX_EXTRA_SEARCH_MATCHES = 100;
-// A never-before-fetched symbol's sparkline can still be mid-flight on the
-// server (see lib/sparklineFetch.ts's own bounded per-batch wait) even
-// after mini-quotes has already answered with `history: null` for it —
-// this is the one bounded retry that catches that case, rather than
-// leaving the row on "no chart data" forever just because it lost the
-// race the first time. Comfortably longer than the server's own
-// per-symbol wait so the retry actually has new data to find.
-const SPARKLINE_RETRY_DELAY_MS = 6_000;
 // Same threshold/treatment as TickerMiniCard's strong-mover glow, applied
 // here too so the two ticker-listing surfaces on this page read as one
 // consistent color language rather than two different conventions.
@@ -46,8 +37,6 @@ interface MiniQuote {
   symbol: string;
   price: number | null;
   percentChange: number | null;
-  history: { time: number; value: number }[] | null;
-  sparklineStale: boolean;
   priceStale: boolean;
 }
 
@@ -129,14 +118,15 @@ function CatalogRow({ entry, quote }: { entry: CatalogEntry; quote?: MiniQuote }
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm text-foreground/70">{entry.name}</p>
       </div>
-      <div className="h-8 w-24 shrink-0">
-        <SparklineSlot
-          history={quote ? quote.history : undefined}
-          stale={(quote?.sparklineStale ?? false) || (quote?.priceStale ?? false)}
-          height={32}
-        />
-      </div>
       <div className="w-24 shrink-0 text-right">
+        {quote?.priceStale && (
+          <span
+            className="rounded-sm bg-foreground/10 px-1 py-px text-[8px] font-medium uppercase leading-none tracking-wide text-foreground/50"
+            title="Showing the last available price — live data is temporarily unavailable"
+          >
+            Stale
+          </span>
+        )}
         <div className="font-medium text-foreground">{hasQuote ? formatPrice(quote!.price!) : "—"}</div>
         {hasQuote && (
           <div
@@ -172,7 +162,6 @@ export default function StockCatalogSection() {
 
   const [quotes, setQuotes] = useState<Map<string, MiniQuote>>(new Map());
   const fetchedSymbolsRef = useRef<Set<string>>(new Set());
-  const retriedSymbolsRef = useRef<Set<string>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
 
   // The whole curated catalog (~130 rows, static, no upstream API calls)
@@ -337,17 +326,21 @@ export default function StockCatalogSection() {
 
     missing.forEach((symbol) => fetchedSymbolsRef.current.add(symbol));
     let cancelled = false;
-    let retryTimeoutId: ReturnType<typeof setTimeout> | undefined;
 
-    async function fetchQuotes(symbols: string[]): Promise<MiniQuote[]> {
-      const response = await fetch(`/api/stock/mini-quotes?symbols=${encodeURIComponent(symbols.join(","))}`);
-      const body = await response.json().catch(() => null);
-      return Array.isArray(body?.quotes) ? body.quotes : [];
-    }
-
+    // sparkline=false: this row no longer renders a chart (see CatalogRow)
+    // — a ~22-day daily-close line next to a one-day % change, unlabelled,
+    // was a real period mismatch. Skipping it also means `history` is
+    // always null in the response now, so the old bounded retry for a
+    // still-in-flight sparkline (catching up on a delayed TwelveData fetch)
+    // has nothing left to ever catch — removed along with it, rather than
+    // left retrying a fetch that no longer happens.
     async function loadQuotes() {
       try {
-        const list = await fetchQuotes(missing);
+        const response = await fetch(
+          `/api/stock/mini-quotes?symbols=${encodeURIComponent(missing.join(","))}&sparkline=false`
+        );
+        const body = await response.json().catch(() => null);
+        const list: MiniQuote[] = Array.isArray(body?.quotes) ? body.quotes : [];
         if (cancelled) return;
 
         setQuotes((prev) => {
@@ -355,36 +348,6 @@ export default function StockCatalogSection() {
           list.forEach((quote) => next.set(quote.symbol, quote));
           return next;
         });
-
-        // A symbol can still be mid-flight server-side (see
-        // lib/sparklineFetch.ts's own bounded per-batch wait) even after
-        // this response already answered `history: null` for it — one
-        // bounded retry catches that case instead of leaving the row on
-        // "no chart data" forever just because it lost the race the first
-        // time. Never marked stale, since a stale result IS real data to
-        // show, just not fresh — nothing to retry there.
-        const retryCandidates = list
-          .filter((quote) => quote.history === null && !quote.sparklineStale)
-          .map((quote) => quote.symbol)
-          .filter((symbol) => !retriedSymbolsRef.current.has(symbol));
-
-        if (retryCandidates.length === 0) return;
-        retryCandidates.forEach((symbol) => retriedSymbolsRef.current.add(symbol));
-
-        retryTimeoutId = setTimeout(async () => {
-          if (cancelled) return;
-          try {
-            const retried = await fetchQuotes(retryCandidates);
-            if (cancelled) return;
-            setQuotes((prev) => {
-              const next = new Map(prev);
-              retried.forEach((quote) => next.set(quote.symbol, quote));
-              return next;
-            });
-          } catch {
-            // Leave the existing "no chart data" fallback in place.
-          }
-        }, SPARKLINE_RETRY_DELAY_MS);
       } catch {
         // Rows for these symbols just keep showing their "—" placeholder —
         // matches this app's established graceful-degrade convention.
@@ -394,7 +357,6 @@ export default function StockCatalogSection() {
     loadQuotes();
     return () => {
       cancelled = true;
-      clearTimeout(retryTimeoutId);
     };
   }, [visibleSymbolsKey]);
 

@@ -4,13 +4,11 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Star } from "lucide-react";
 import RevealOnScroll from "@/components/RevealOnScroll";
-import MiniLineChart from "@/components/MiniLineChart";
 
 interface MiniQuote {
   symbol: string;
   price: number | null;
   percentChange: number | null;
-  history: { time: number; value: number }[] | null;
 }
 
 const currencyFormatter = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -33,7 +31,13 @@ export default function WatchlistDigestSection({ symbols }: { symbols: Set<strin
         return;
       }
       try {
-        const response = await fetch(`/api/stock/mini-quotes?symbols=${encodeURIComponent(stockSymbols.join(","))}`);
+        // sparkline=false: this card no longer renders a chart (see below)
+        // — a ~22-day daily-close line next to a one-day % change,
+        // unlabelled, was a real period mismatch, not just a display
+        // choice worth keeping around.
+        const response = await fetch(
+          `/api/stock/mini-quotes?symbols=${encodeURIComponent(stockSymbols.join(","))}&sparkline=false`
+        );
         const body = await response.json().catch(() => null);
         if (!cancelled) setQuotes(Array.isArray(body?.quotes) ? body.quotes : []);
       } catch {
@@ -74,11 +78,6 @@ export default function WatchlistDigestSection({ symbols }: { symbols: Set<strin
                 )}
               </div>
               <span className="text-lg font-bold text-white">{q.price != null ? currencyFormatter.format(q.price) : "—"}</span>
-              {q.history && q.history.length > 1 && (
-                <div className="h-8 w-full">
-                  <MiniLineChart data={q.history} height={32} />
-                </div>
-              )}
             </Link>
           );
         })}

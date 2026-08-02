@@ -95,26 +95,19 @@ export function useWatchlistItems() {
               };
             }
 
-            const [quoteResponse, historyResponse] = await Promise.all([
-              fetch(`/api/stock?ticker=${encodeURIComponent(raw.symbol)}`).catch(() => null),
-              fetch(
-                `/api/stock/history?ticker=${encodeURIComponent(raw.symbol)}&range=1M&interval=1day`
-              ).catch(() => null),
-            ]);
-
+            // No history fetch for stocks anymore (see WatchlistCard) — the
+            // card no longer renders a chart for this path, and the old
+            // /api/stock/history call it fed was a ~22-day daily-close line
+            // shown next to Finnhub's one-day % change, unlabelled: a real
+            // period mismatch, not just a display choice. Confirmed live
+            // this call could hang 60+s under load, which was blocking the
+            // otherwise-fast quote fetch below in the same Promise.all —
+            // dropping it also fixes that.
+            const quoteResponse = await fetch(`/api/stock?ticker=${encodeURIComponent(raw.symbol)}`).catch(
+              () => null
+            );
             const quote =
               quoteResponse && quoteResponse.ok ? await quoteResponse.json().catch(() => null) : null;
-            const historyBody =
-              historyResponse && historyResponse.ok
-                ? await historyResponse.json().catch(() => null)
-                : null;
-
-            const history: WatchlistCardData["history"] = Array.isArray(historyBody?.history)
-              ? historyBody.history.map((point: { date: string; close: number }) => ({
-                  time: Math.floor(new Date(point.date).getTime() / 1000),
-                  value: point.close,
-                }))
-              : null;
 
             return {
               symbol: raw.symbol,
@@ -124,8 +117,8 @@ export function useWatchlistItems() {
               price: quote?.close ?? null,
               change: quote ? quote.close - quote.open : null,
               percentChange: quote?.percentChange ?? null,
-              history,
-              stale: Boolean(historyBody?.stale),
+              history: null,
+              stale: Boolean(quote?.stale),
             };
           })
         );

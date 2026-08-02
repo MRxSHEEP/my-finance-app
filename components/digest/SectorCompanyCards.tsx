@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import RevealOnScroll from "@/components/RevealOnScroll";
-import MiniLineChart from "@/components/MiniLineChart";
 import {
   STOCK_CATALOG,
   CATALOG_SECTORS,
@@ -20,7 +19,6 @@ interface MiniQuote {
   symbol: string;
   price: number | null;
   percentChange: number | null;
-  history: { time: number; value: number }[] | null;
 }
 
 // Static per-sector picks — the first N entries already listed under each
@@ -64,7 +62,12 @@ export default function SectorCompanyCards({ watchlistSymbols, selectedSectors }
       try {
         const results = await Promise.all(
           batches.map(async (batch) => {
-            const response = await fetch(`/api/stock/mini-quotes?symbols=${encodeURIComponent(batch.join(","))}`);
+            // sparkline=false: no chart rendered here (see below) — a
+            // ~22-day daily-close line next to a one-day % change,
+            // unlabelled, was a real period mismatch.
+            const response = await fetch(
+              `/api/stock/mini-quotes?symbols=${encodeURIComponent(batch.join(","))}&sparkline=false`
+            );
             const body = await response.json().catch(() => null);
             return Array.isArray(body?.quotes) ? (body.quotes as MiniQuote[]) : [];
           })
@@ -113,9 +116,6 @@ export default function SectorCompanyCards({ watchlistSymbols, selectedSectors }
                       >
                         {symbol}
                       </span>
-                      <div className="h-5 w-16 shrink-0">
-                        {quote?.history && quote.history.length > 1 ? <MiniLineChart data={quote.history} height={20} /> : null}
-                      </div>
                       <span
                         className={`ml-auto shrink-0 text-xs font-medium ${
                           quote?.percentChange != null ? (isUp ? "text-green-500" : "text-red-500") : "text-white/30"

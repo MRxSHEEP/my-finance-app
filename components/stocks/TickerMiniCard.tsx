@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import SparklineSlot from "@/components/SparklineSlot";
 import { cardClass, type CardAccent } from "@/lib/cardStyles";
 
 export type { CardAccent };
@@ -31,9 +30,11 @@ interface TickerMiniCardProps {
   name?: string;
   price: number | null;
   percentChange: number | null;
-  // undefined: quote not fetched yet (loading skeleton). null/[]: fetched,
-  // no chart data (clean fallback). See components/SparklineSlot.tsx.
-  history: { time: number; value: number }[] | null | undefined;
+  // True when `price`/`percentChange` are last-known-good data because the
+  // live Finnhub fetch failed, not a fresh read — see lib/finnhubQuoteCache.ts.
+  // No longer about the sparkline (removed below, see git history for why:
+  // it paired a ~22-day daily-close line against a one-day % change with no
+  // label, a period mismatch, not something worth caveating in place).
   stale?: boolean;
   accent?: CardAccent;
   // The parent remounts this component (via a flashToken-suffixed `key`)
@@ -48,7 +49,6 @@ export default function TickerMiniCard({
   name,
   price,
   percentChange,
-  history,
   stale = false,
   accent = "neutral",
   flashDirection = null,
@@ -70,13 +70,19 @@ export default function TickerMiniCard({
         }`,
       })}
     >
-      <div>
-        <h3 className="font-semibold text-foreground">{symbol}</h3>
-        {name && <p className="truncate text-xs text-foreground/50">{name}</p>}
-      </div>
-
-      <div className="h-12 w-full">
-        <SparklineSlot history={history} stale={stale} height={48} />
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h3 className="font-semibold text-foreground">{symbol}</h3>
+          {name && <p className="truncate text-xs text-foreground/50">{name}</p>}
+        </div>
+        {stale && (
+          <span
+            className="rounded-sm bg-foreground/10 px-1 py-px text-[8px] font-medium uppercase leading-none tracking-wide text-foreground/50"
+            title="Showing the last available price — live data is temporarily unavailable"
+          >
+            Stale
+          </span>
+        )}
       </div>
 
       <div className="flex flex-col gap-0.5">

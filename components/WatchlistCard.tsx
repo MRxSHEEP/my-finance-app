@@ -111,14 +111,35 @@ export function WatchlistCard({
         </button>
       </div>
 
-      <div className="h-16 w-full">
-        <SparklineSlot history={item.history} stale={item.stale} height={64} />
-      </div>
+      {/* Crypto keeps its chart — single-source CoinGecko history, out of
+          scope for the stock period-mismatch fix below. Stocks get a
+          same-height spacer instead of the chart, not a bare removal: a
+          user's watchlist can mix both asset types in the same grid, and
+          CSS Grid would otherwise stretch a chartless stock card to match
+          a taller crypto neighbor in the same row, leaving dead space at
+          the bottom instead of a cleanly-sized card. */}
+      {item.assetType === "crypto" ? (
+        <div className="h-16 w-full">
+          <SparklineSlot history={item.history} stale={item.stale} height={64} />
+        </div>
+      ) : (
+        <div className="h-16 w-full" aria-hidden="true" />
+      )}
 
       <div className="flex flex-col gap-0.5">
-        <span className="text-lg font-semibold text-foreground">
-          {hasQuote ? currencyFormatter.format(item.price!) : "—"}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-lg font-semibold text-foreground">
+            {hasQuote ? currencyFormatter.format(item.price!) : "—"}
+          </span>
+          {item.assetType === "stock" && item.stale && (
+            <span
+              className="rounded-sm bg-foreground/10 px-1 py-px text-[8px] font-medium uppercase leading-none tracking-wide text-foreground/50"
+              title="Showing the last available price — live data is temporarily unavailable"
+            >
+              Stale
+            </span>
+          )}
+        </div>
         {hasQuote && (
           <span
             className={`text-xs font-medium ${

@@ -98,6 +98,18 @@ function CommodityCardSkeleton() {
   );
 }
 
+// Gold/silver's history and quote both come from Polygon — single source,
+// no period-mismatch bug, out of scope for this fix. The other seven
+// (USO/BNO/UNG/CPER/CORN/WEAT/SOYB) pair a TwelveData ~22-day daily-close
+// line against a Finnhub one-day % change with no label — a real period
+// mismatch, so those seven stop rendering a chart at all. The server-side
+// fetch for their history still runs (app/api/ticker/route.ts's
+// TWELVEDATA_COMMODITY_SYMBOLS) — components/portfolio/
+// SimulatedPortfolioDetailView.tsx also reads it for its own commodity
+// quick-reference panel, out of scope here — this is a client-side
+// render-only change, not a fetch elimination, for this specific surface.
+const SPARKLINE_ELIGIBLE_SYMBOLS = new Set(["C:XAUUSD", "C:XAGUSD"]);
+
 function CommodityCard({
   commodity,
   highlighted,
@@ -118,7 +130,8 @@ function CommodityCard({
   const isDown = hasQuote && commodity.percentChange! < 0;
   const iconDef = COMMODITY_ICON[commodity.symbol];
   const Icon = iconDef?.icon;
-  const hasHistory = commodity.history !== null && commodity.history.length > 0;
+  const showSparkline = SPARKLINE_ELIGIBLE_SYMBOLS.has(commodity.symbol);
+  const hasHistory = showSparkline && commodity.history !== null && commodity.history.length > 0;
 
   return (
     <Link
@@ -143,8 +156,13 @@ function CommodityCard({
         {hasQuote ? currencyFormatter.format(commodity.price!) : "—"}
       </span>
 
+      {/* Same h-10 allocated for every card regardless of showSparkline —
+          gold/silver and the seven proxy commodities sit in the same grid,
+          and a bare removal here would let CSS Grid stretch a shorter proxy
+          card to match a taller gold/silver neighbor in the same row,
+          leaving dead space at the bottom instead of a cleanly-sized card. */}
       <div className="h-10 w-full">
-        {hasHistory ? (
+        {!showSparkline ? null : hasHistory ? (
           <MiniLineChart data={commodity.history!} height={40} />
         ) : loaded ? (
           <div className="flex h-full w-full items-center justify-center rounded bg-foreground/5">

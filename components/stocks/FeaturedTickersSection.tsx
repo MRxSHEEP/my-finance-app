@@ -70,8 +70,14 @@ export default function FeaturedTickersSection({
     async function poll() {
       try {
         const symbols = tickers.map((t) => t.symbol).join(",");
+        // sparkline=false: these cards no longer render a chart (see
+        // TickerMiniCard) — a ~22-day daily-close line next to a one-day %
+        // change, unlabelled, was a real period mismatch, not something
+        // worth caveating in place. Skipping it also means this fetch is no
+        // longer held up server-side behind the throttled TwelveData batch,
+        // so price/% arrive as fast as Finnhub alone allows.
         const response = await fetch(
-          `/api/stock/mini-quotes?symbols=${encodeURIComponent(symbols)}`
+          `/api/stock/mini-quotes?symbols=${encodeURIComponent(symbols)}&sparkline=false`
         );
         const body = await response.json().catch(() => null);
         if (cancelled) return;
@@ -133,8 +139,7 @@ export default function FeaturedTickersSection({
                 name={ticker.name}
                 price={quote?.price ?? null}
                 percentChange={quote?.percentChange ?? null}
-                history={quote ? quote.history : undefined}
-                stale={(quote?.sparklineStale ?? false) || (quote?.priceStale ?? false)}
+                stale={quote?.priceStale ?? false}
                 accent={accent}
                 flashDirection={quote?.flashDirection ?? null}
               />
