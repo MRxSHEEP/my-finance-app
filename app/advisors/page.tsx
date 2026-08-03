@@ -1,7 +1,15 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
-import { ShieldCheck, FileBarChart2, PieChart, Scale } from "lucide-react";
+import { ShieldCheck, FileBarChart2, PieChart, Scale, Copy, Check } from "lucide-react";
 import RevealOnScroll from "@/components/RevealOnScroll";
 import { cardClass } from "@/lib/cardStyles";
+
+// Single source for the address — both mailto hrefs below and the visible
+// fallback text in CtaRow derive from this, so it only ever exists once in
+// source.
+const SUPPORT_EMAIL = "thenoblesupport@gmail.com";
 
 // A separate front door for RIA/advisory-firm visitors — no TickerBar, no
 // Sidebar, no AccountMenu (see components/ConditionalAppChrome.tsx), and
@@ -59,20 +67,64 @@ const FEATURES = [
 // a one-click org setup that doesn't happen there, so it asks for early
 // access instead until that gap is closed.
 function CtaRow() {
+  const [copied, setCopied] = useState(false);
+
+  function copyEmail() {
+    navigator.clipboard
+      ?.writeText(SUPPORT_EMAIL)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {
+        // Rejected (permission denied) or navigator.clipboard is undefined
+        // (non-secure context) — the address text right next to this button
+        // is already selectable by hand, so there's nothing further to fall
+        // back to; this just prevents an unhandled rejection.
+      });
+  }
+
   return (
-    <div className="flex flex-wrap items-center justify-center gap-3">
-      <a
-        href="mailto:thenoblesupport@gmail.com?subject=Noble%20for%20Advisors%20%E2%80%94%20early%20access"
-        className="rounded-md bg-foreground px-6 py-3 text-sm font-medium text-background transition-opacity hover:opacity-90"
-      >
-        Request early access
-      </a>
-      <Link
-        href="/login"
-        className="rounded-md border border-black/10 px-6 py-3 text-sm font-medium text-foreground/70 hover:text-foreground dark:border-white/15"
-      >
-        Sign in
-      </Link>
+    <div className="flex flex-col items-center gap-2">
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        <a
+          href={`mailto:${SUPPORT_EMAIL}?subject=Noble%20for%20Advisors%20%E2%80%94%20early%20access`}
+          className="rounded-md bg-foreground px-6 py-3 text-sm font-medium text-background transition-opacity hover:opacity-90"
+        >
+          Request early access
+        </a>
+        <Link
+          href="/login"
+          className="rounded-md border border-black/10 px-6 py-3 text-sm font-medium text-foreground/70 hover:text-foreground dark:border-white/15"
+        >
+          Sign in
+        </Link>
+      </div>
+      {/* Guaranteed fallback for the mailto above — on a machine with no
+          default mail client configured, clicking it does nothing at all,
+          silently. This plain, always-visible, selectable text needs no JS,
+          no clipboard permissions, no secure context — it's the actual
+          "never fails" guarantee; the Copy button is a convenience on top of
+          it, not a replacement. */}
+      <p className="text-xs text-foreground/50">
+        Or email us directly:{" "}
+        <span className="whitespace-nowrap font-medium text-foreground select-all">{SUPPORT_EMAIL}</span>{" "}
+        <button
+          type="button"
+          onClick={copyEmail}
+          className="inline-flex items-center gap-1 whitespace-nowrap underline hover:no-underline"
+        >
+          {copied ? (
+            <>
+              <Check size={12} /> Copied
+            </>
+          ) : (
+            <>
+              <Copy size={12} /> Copy
+            </>
+          )}
+        </button>
+      </p>
     </div>
   );
 }

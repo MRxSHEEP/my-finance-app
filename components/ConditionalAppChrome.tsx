@@ -86,9 +86,20 @@ export default function ConditionalAppChrome({
                 only ever renders on /advisors (see isMarketing above / this
                 file's MARKETING_ROUTE_PREFIXES), so this is the only route
                 affected — every other route uses AccountMenu instead, which
-                has no such claim to begin with. */}
+                has no such claim to begin with.
+
+                No visible fallback text here for the same reason "Sign in"
+                is already hidden below sm — this row has no room left
+                (confirmed: chip + Sign in + this button don't fit at 375px).
+                title= is free (no layout cost) and helps on desktop hover;
+                the real "never silently fails" guarantee lives in the page
+                body's CtaRow directly below, which shows the address as
+                plain selectable text and is on-screen in the same initial
+                viewport at every width — not a second copy of that same
+                fallback squeezed into this one row. */}
             <a
               href="mailto:thenoblesupport@gmail.com?subject=Noble%20for%20Advisors%20%E2%80%94%20early%20access"
+              title="thenoblesupport@gmail.com"
               className="whitespace-nowrap rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:opacity-90 sm:px-4 sm:text-sm"
             >
               Request early access
