@@ -115,6 +115,11 @@
      card's border/badge elsewhere, so the glow reads as "more of this
      card's own color," not an unrelated new accent. */
   --animate-flag-glow: flag-glow 2.4s ease-in-out infinite;
+  /* Audience mode chip (header) — a one-shot settle-in, remounted via a
+     changing `key={mode}` on toggle (same restart technique as star-bounce/
+     hamburger-spin above). Opacity/scale only, never width/padding, so it
+     never reflows the header row it sits in. */
+  --animate-chip-mode-in: chip-mode-in 300ms ease-out;
 
   @keyframes hamburger-spin {
     from {
@@ -184,6 +189,21 @@
     }
     to {
       transform: scaleY(1);
+    }
+  }
+
+  @keyframes chip-mode-in {
+    0% {
+      opacity: 0;
+      transform: scale(0.9);
+    }
+    60% {
+      opacity: 1;
+      transform: scale(1.04);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
     }
   }
 
