@@ -71,7 +71,13 @@ export default function AudienceModeChip({ mode, switchable }: AudienceModeChipP
         body: JSON.stringify({ mode: next }),
       });
     } finally {
-      router.push(next === "advisor" ? "/advisors" : "/");
+      // No router.push() — this is a peer, reversible view toggle, not the
+      // one-time picker's onboarding choice (see AudienceModePicker.tsx,
+      // which still does navigate). Forcing a navigation on every toggle
+      // used to route straight into /advisors, the one page whose chip is
+      // deliberately non-interactive — refresh() alone re-resolves the mode
+      // from app/layout.tsx server-side and switches in place, wherever the
+      // visitor already is.
       router.refresh();
     }
   }
