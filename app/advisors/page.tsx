@@ -12,6 +12,11 @@ import { cardClass } from "@/lib/cardStyles";
 // this page exists to stay clear of. Every sentence below is static
 // prose adapted from those same walkthroughs' own already-accuracy-checked
 // captions (and each feature's own page subtitle), not new claims.
+//
+// Revisited pre-launch (zero customers): the hero eyebrow/sub-headline, the
+// Peer Benchmarking card's trend sentence, and the primary CTA were rewritten
+// so the page doesn't read as software firms are already using — see the
+// comment on CtaRow() below for the CTA specifically.
 const FEATURES = [
   {
     key: "compliance",
@@ -43,19 +48,25 @@ const FEATURES = [
     name: "Peer Benchmarking",
     tagline: "Peer comparisons, current metrics, and trend tracking.",
     description:
-      "Build a peer set in minutes by searching real tickers, then see exactly how a core holding stacks up against its closest peers, metric by metric, with the best value in each row highlighted automatically — no manual spreadsheet comparison required. Trends build automatically over time, so a firm can show not just where a holding stands today, but where it's headed.",
+      "Build a peer set in minutes by searching real tickers, then see exactly how a core holding stacks up against its closest peers, metric by metric, with the best value in each row highlighted automatically — no manual spreadsheet comparison required. Every peer set is snapshotted daily, so a trend view builds in automatically as your firm uses it — showing how the comparison has moved, not just where it stands today.",
   },
 ] as const;
 
+// The primary action is a mailto request, not a Link to /signup: a working
+// self-serve signup exists but only creates a personal User account, not an
+// Organization — real org creation is a separate, unlinked flow at
+// /compliance's CreateOrgCard. Pointing this button at /signup would promise
+// a one-click org setup that doesn't happen there, so it asks for early
+// access instead until that gap is closed.
 function CtaRow() {
   return (
     <div className="flex flex-wrap items-center justify-center gap-3">
-      <Link
-        href="/signup"
+      <a
+        href="mailto:thenoblesupport@gmail.com?subject=Noble%20for%20Advisors%20%E2%80%94%20early%20access"
         className="rounded-md bg-foreground px-6 py-3 text-sm font-medium text-background transition-opacity hover:opacity-90"
       >
-        Create your organization
-      </Link>
+        Request early access
+      </a>
       <Link
         href="/login"
         className="rounded-md border border-black/10 px-6 py-3 text-sm font-medium text-foreground/70 hover:text-foreground dark:border-white/15"
@@ -70,12 +81,15 @@ export default function AdvisorsPage() {
   return (
     <main className="flex flex-1 flex-col items-center gap-16 p-8 pb-20 pt-16">
       <RevealOnScroll className="flex max-w-2xl flex-col items-center gap-4 text-center">
+        <span className="rounded-full border border-black/10 bg-background px-3 py-1 text-xs font-medium text-foreground/50 shadow-sm dark:border-white/15">
+          Early access
+        </span>
         <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
           Built for RIAs and advisory firms
         </h1>
         <p className="text-lg text-foreground/60">
           Compliance, reporting, model portfolios, and peer benchmarking — the tools an advisory firm
-          needs, in one place for the whole team.
+          needs, in one place for the whole team. Now opening to a limited set of early-access firms.
         </p>
         <CtaRow />
       </RevealOnScroll>

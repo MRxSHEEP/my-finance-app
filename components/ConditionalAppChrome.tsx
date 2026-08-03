@@ -79,12 +79,20 @@ export default function ConditionalAppChrome({
             <Link href="/login" className="hidden font-medium text-foreground/70 hover:text-foreground sm:inline">
               Sign in
             </Link>
-            <Link
-              href="/signup"
+            {/* mailto, not a Link to /signup — matches app/advisors/page.tsx's
+                own CtaRow and the reasoning in its comment: /signup only
+                creates a personal User account, not an Organization, so a
+                button promising org creation can't point there. This header
+                only ever renders on /advisors (see isMarketing above / this
+                file's MARKETING_ROUTE_PREFIXES), so this is the only route
+                affected — every other route uses AccountMenu instead, which
+                has no such claim to begin with. */}
+            <a
+              href="mailto:thenoblesupport@gmail.com?subject=Noble%20for%20Advisors%20%E2%80%94%20early%20access"
               className="whitespace-nowrap rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:opacity-90 sm:px-4 sm:text-sm"
             >
-              Create your organization
-            </Link>
+              Request early access
+            </a>
           </div>
         </header>
         <div className="flex flex-1 flex-col">{children}</div>
